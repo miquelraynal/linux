@@ -98,6 +98,7 @@
 
 /* A3700_SPI_IF_TIME_REG */
 #define A3700_SPI_CLK_CAPT_EDGE		BIT(7)
+#define A3700_SPI_CLK_MAX_OUT_FREQ	100000000
 
 struct a3700_spi {
 	struct spi_master *master;
@@ -774,6 +775,7 @@ static int a3700_spi_probe(struct platform_device *pdev)
 	master->mode_bits = SPI_MODE_3;
 	master->num_chipselect = num_cs;
 	master->bits_per_word_mask = SPI_BPW_MASK(8) | SPI_BPW_MASK(32);
+	master->max_speed_hz = A3700_SPI_CLK_MAX_OUT_FREQ;
 	master->prepare_message =  a3700_spi_prepare_message;
 	master->transfer_one = a3700_spi_transfer_one;
 	master->unprepare_message = a3700_spi_unprepare_message;
