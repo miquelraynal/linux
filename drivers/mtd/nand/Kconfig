@@ -319,6 +319,13 @@ config MTD_NAND_PXA3xx
 	  This enables the driver for the NAND flash device found on
 	  PXA3xx processors (NFCv1) and also on Armada 370/XP (NFCv2).
 
+config MTD_NAND_MARVELL
+	tristate "*REWORK* NAND support on PXA3xx and Armada 370/XP"
+	depends on PXA3xx || ARCH_MMP || PLAT_ORION
+	help
+	  This enables the driver for the NAND flash device found on
+	  PXA3xx processors (NFCv1) and also on Armada 370/XP (NFCv2).
+
 config MTD_NAND_SLC_LPC32XX
 	tristate "NXP LPC32xx SLC Controller"
 	depends on ARCH_LPC32XX
