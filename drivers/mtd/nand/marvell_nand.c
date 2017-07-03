@@ -207,36 +207,68 @@ static void marvell_nfc_cmd_ctrl(struct mtd_info *mtd, int cmd,
 //		init_completion(&nfc->cmdd);
 //		marvell_nfc_enable_int(nfc, (NDCR_CS0_CMDDM | NDCR_CS1_CMDDM));
 
-		/* Reset command buffer and reset ND_RUN bit */
-		writel(0, nfc->regs + NDCB0);
+		/* Deassert ND_RUN bit and clear the status register before issuing any command */
 		writel(readl(nfc->regs + NDCR) & ~NDCR_ND_RUN, nfc->regs + NDCR);
+		writel(readl(nfc->regs + NDSR), nfc->regs + NDSR);
+		printk("NDSR 0x%x\n", readl(nfc->regs + NDSR));
+
+		/* Assert ND_RUN bit and wait the NFC to be ready by issuing the WRCMDREQ status bit */
+		writel(readl(nfc->regs + NDCR) | NDCR_ND_RUN, nfc->regs + NDCR);
+		ret = readl_poll_timeout(nfc->regs + NDSR, val,
+					 val & NDSR_WRCMDREQ, 1000, 5000);
+		if (ret) {
+			dev_err(nfc->dev,
+				"Timeout on WRCMDRE (val %x)\n", val);
+			return;
+		}
+
+		printk("NDSR after poll 0x%x\n", readl(nfc->regs + NDSR));
 
 		/* NFC uses naked commands and naked addresses */
 		if (ctrl & NAND_CLE) {
 			printk("CLE... ");
-			if (cmd == NAND_CMD_RESET) {
-				printk("Reset asked\n");
-				writel(NDCB0_CMD_TYPE(TYPE_RESET) | cmd,
-				       nfc->regs + NDCB0);
-			} else {
-				writel(NDCB0_CMD_TYPE(TYPE_NAKED_CMD) | cmd,
-				       nfc->regs + NDCB0);
-			}
+			writel(NDCB0_CMD_TYPE(TYPE_NAKED_CMD) | cmd,
+			       nfc->regs + NDCB0);
+			printk("writing %x in NDCB0\n", NDCB0_CMD_TYPE(TYPE_NAKED_CMD) | cmd);
+			writel(0, nfc->regs + NDCB0);
+			writel(0, nfc->regs + NDCB0);
+			writel(0, nfc->regs + NDCB0);
+
 		} else if (ctrl & NAND_ALE) {
 			printk("ALE... ");
-			writel(NDCB0_CMD_TYPE(TYPE_NAKED_ADDR) | NDCB0_ADDR_CYC(4),
+			writel(NDCB0_CMD_TYPE(TYPE_NAKED_ADDR) | NDCB0_ADDR_CYC(1),
 			       nfc->regs + NDCB0);
-			writel(cmd, nfc->regs + NDCB1);
+			printk("writing %x in NDCB0\n", NDCB0_CMD_TYPE(TYPE_NAKED_ADDR) | NDCB0_ADDR_CYC(1));
+			writel(cmd, nfc->regs + NDCB0 /* C'EST LE 1 */);
+			writel(0, nfc->regs + NDCB0);
+			writel(0, nfc->regs + NDCB0);
 		}
 
-		/* Run command */
-		writel(readl(nfc->regs + NDCR) | NDCR_ND_RUN, nfc->regs + NDCR);
+		/* Print ndcb* regs */
+		printk("NDCB0 0x%x\n", readl(nfc->regs + NDCB0));
+		printk("NDCB1 0x%x\n", readl(nfc->regs + NDCB1));
+		printk("NDCB2 0x%x\n", readl(nfc->regs + NDCB2));
+		printk("NDCB3 0x%x\n", readl(nfc->regs + NDCB3));
+		printk("NDCR 0x%x\n", readl(nfc->regs + NDCR));
+		printk("NDSR 0x%x\n", readl(nfc->regs + NDSR));
+
 
 		//todo remove sleep
 //		msleep(10);
 		printk("end of ->cmd_ctrl() (ndcr %x)\n", readl(nfc->regs+NDCR));
 
-		wait_run(nfc);
+//		wait_run(nfc);
+		/* The command is being processed, wait for the ND_RUN bit to be cleared by the NFC. If not, we must clear it by hand after a timeout */
+		ret = readl_poll_timeout(nfc->regs + NDCR, val,
+					 (val & NDCR_ND_RUN) == 0, 1000, 5000);
+		if (ret) {
+			dev_err(nfc->dev,
+				"Timeout on ND_RUN (val %x)\n", val);
+			writel(readl(nfc->regs + NDCR) & ~NDCR_ND_RUN, nfc->regs + NDCR);
+			return;
+		}
+
+		printk("NDSR after wait run 0x%x\n", readl(nfc->regs + NDSR));
 
 //		if (!wait_for_completion_timeout(&nfc->cmdd, CHIP_DELAY_TIMEOUT)) {
 //			dev_err(nfc->dev, "Timeout on command request\n");
@@ -252,9 +284,9 @@ static int marvell_nfc_dev_ready(struct mtd_info *mtd)
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 
-	msleep(100);
-	printk("%s return always true after a 100ms delay !!!\n", __FUNCTION__);
-	return true; //!!(readl(nfc->regs + NDSR) & (NDSR_RDY0 | NDSR_RDY1));
+//	msleep(100);
+//	printk("%s return always true after a 100ms delay !!!\n", __FUNCTION__);
+	return !!(readl(nfc->regs + NDSR) & (NDSR_RDY0 | NDSR_RDY1));
 }
 
 static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
