@@ -216,15 +216,15 @@ static void marvell_nfc_cmd_ctrl(struct mtd_info *mtd, int cmd,
 			printk("CLE... ");
 			if (cmd == NAND_CMD_RESET) {
 				printk("Reset asked\n");
-				writel(NDCB0_CMD_TYPE(TYPE_RESET) | cmd | NDCB0_CSEL,
+				writel(NDCB0_CMD_TYPE(TYPE_RESET) | cmd,
 				       nfc->regs + NDCB0);
 			} else {
-				writel(NDCB0_CMD_TYPE(TYPE_NAKED_CMD) | cmd | NDCB0_CSEL,
+				writel(NDCB0_CMD_TYPE(TYPE_NAKED_CMD) | cmd,
 				       nfc->regs + NDCB0);
 			}
 		} else if (ctrl & NAND_ALE) {
 			printk("ALE... ");
-			writel(NDCB0_CMD_TYPE(TYPE_NAKED_ADDR) | NDCB0_ADDR_CYC(4) | NDCB0_CSEL,
+			writel(NDCB0_CMD_TYPE(TYPE_NAKED_ADDR) | NDCB0_ADDR_CYC(4),
 			       nfc->regs + NDCB0);
 			writel(cmd, nfc->regs + NDCB1);
 		}
