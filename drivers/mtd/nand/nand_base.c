@@ -53,7 +53,38 @@ static int nand_get_device(struct mtd_info *mtd, int new_state);
 static int nand_do_write_oob(struct mtd_info *mtd, loff_t to,
 			     struct mtd_oob_ops *ops);
 
-/* Define default oob placement schemes for large and small page devices */
+/*
+ * Define default OOB placement schemes for:
+ *   - no ECC or software ECC
+ *   - small or large page devices
+ */
+static int nand_ooblayout_free_sp_no_ecc(struct mtd_info *mtd, int section,
+					   struct mtd_oob_region *oobregion)
+{
+	if (section > 1)
+		return -ERANGE;
+
+	if (!section) {
+		if (mtd->oobsize == 16) {
+			oobregion->offset = 0;
+			oobregion->length = 4;
+		} else {
+			oobregion->offset = 0;
+			oobregion->length = 5;
+		}
+	} else {
+		oobregion->offset = 6;
+		oobregion->length = mtd->oobsize - oobregion->offset;
+	}
+
+	return 0;
+}
+
+const struct mtd_ooblayout_ops nand_ooblayout_sp_no_ecc_ops = {
+	.free = nand_ooblayout_free_sp_no_ecc,
+};
+EXPORT_SYMBOL_GPL(nand_ooblayout_sp_no_ecc_ops);
+
 static int nand_ooblayout_ecc_sp(struct mtd_info *mtd, int section,
 				 struct mtd_oob_region *oobregion)
 {
@@ -108,6 +139,23 @@ const struct mtd_ooblayout_ops nand_ooblayout_sp_ops = {
 	.free = nand_ooblayout_free_sp,
 };
 EXPORT_SYMBOL_GPL(nand_ooblayout_sp_ops);
+
+static int nand_ooblayout_free_lp_no_ecc(struct mtd_info *mtd, int section,
+					   struct mtd_oob_region *oobregion)
+{
+	if (section)
+		return -ERANGE;
+
+	oobregion->offset = 2;
+	oobregion->length = mtd->oobsize - oobregion->offset;
+
+	return 0;
+}
+
+const struct mtd_ooblayout_ops nand_ooblayout_lp_no_ecc_ops = {
+	.free = nand_ooblayout_free_lp_no_ecc,
+};
+EXPORT_SYMBOL_GPL(nand_ooblayout_lp_no_ecc_ops);
 
 static int nand_ooblayout_ecc_lp(struct mtd_info *mtd, int section,
 				 struct mtd_oob_region *oobregion)
@@ -4633,6 +4681,17 @@ int nand_scan_tail(struct mtd_info *mtd)
 
 	/* Set the internal oob buffer location, just after the page data */
 	chip->oob_poi = chip->buffers->databuf + mtd->writesize;
+
+	/*
+	 * When using ECC_NONE, ooblayout must only reserve space for bad block
+	 * markers.
+	 */
+	if (!mtd->ooblayout && ecc->mode == NAND_ECC_NONE) {
+		if (mtd->writesize <= 512)
+			mtd_set_ooblayout(mtd, &nand_ooblayout_sp_no_ecc_ops);
+		else
+			mtd_set_ooblayout(mtd, &nand_ooblayout_lp_no_ecc_ops);
+	}
 
 	/*
 	 * If no default placement scheme is given, select an appropriate one.
