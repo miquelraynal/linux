@@ -151,6 +151,7 @@ static void marvell_nfc_disable_int(struct marvell_nfc *nfc, u32 int_mask)
 	writel(readl(nfc->regs + NDSR), nfc->regs + NDSR);
 }
 
+#if 0
 static void marvell_nfc_enable_int(struct marvell_nfc *nfc, u32 int_mask)
 {
 	u32 reg;
@@ -162,6 +163,7 @@ static void marvell_nfc_enable_int(struct marvell_nfc *nfc, u32 int_mask)
 	reg = readl(nfc->regs + NDCR);
 	writel(reg & ~int_mask, nfc->regs + NDCR);
 }
+#endif
 
 static irqreturn_t marvell_nfc_irq(int irq, void *dev_id)
 {
@@ -296,11 +298,14 @@ static int marvell_nfc_dev_ready(struct mtd_info *mtd)
 	return !!(readl(nfc->regs + NDSR) & rdy_flag);
 }
 
-//todo
 static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
 {
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-//	printk("init completion rdy waitfunc\n");
+	int rdy_flag = to_nand_sel(marvell_nand)->rb ? NDSR_RDY1 : NDSR_RDY0;
+	int val, ret;
+
+	printk("%s\n", __FUNCTION__);
 //	init_completion(&nfc->rdy);
 
 //	marvell_nfc_enable_int(nfc, NDCR_RDYM);
@@ -312,7 +317,10 @@ static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
 
 //	marvell_nfc_disable_int(nfc, NDCR_RDYM);
 
-	return 0;
+	ret = readl_poll_timeout(nfc->regs + NDSR, val,
+				val & rdy_flag, 0, 5000);
+
+	return ret;
 }
 
 static void marvell_nfc_do_naked_read(struct mtd_info *mtd, int len)
@@ -659,7 +667,7 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 	nand->select_chip = marvell_nfc_select_chip;
 	nand->cmd_ctrl = marvell_nfc_cmd_ctrl;
 	nand->dev_ready = marvell_nfc_dev_ready;
-//todo	nand->waitfunc = marvell_nfc_waitfunc;
+	nand->waitfunc = marvell_nfc_waitfunc;
 	nand->read_byte = marvell_nfc_read_byte;
 	nand->read_word = marvell_nfc_read_word;
 	nand->read_buf = marvell_nfc_read_buf;
@@ -721,7 +729,6 @@ static int marvell_nand_chips_init(struct device *dev, struct marvell_nfc *nfc)
 	int nchips = of_get_child_count(np);
 	int ret;
 
-	printk("nb of chips : %d\n", nchips);
 	if (nchips > 8) {
 		dev_err(dev, "too many NAND chips: %d (max = 8)\n", nchips);
 		return -EINVAL;
