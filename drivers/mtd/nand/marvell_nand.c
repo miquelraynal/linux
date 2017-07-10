@@ -76,6 +76,8 @@
 #define NDCB0_LEN_OVRD (0x1 << 28)
 #define NDCB0_CMD_XTYPE(x) (((x) & 0x7) << 29)
 
+#define NDCB2_ADDR5 (0x1 << 0)
+
 #define TYPE_READ (0)
 #define TYPE_WRITE (1)
 #define TYPE_READ_ID (3)
@@ -91,13 +93,17 @@
 #define show(x) printk(#x ": 0x%08x [%s:%i]\n", readl(nfc->regs + x), __FUNCTION__, __LINE__)
 
 struct marvell_nand_chip_sel {
-	u8 cs;
-	u8 rb;
+	int cs;
+	u32 ndcb0_csel;
+	u32 ndcb2_addr5;
+	int rb;
 };
 
 struct marvell_nand_chip {
 	struct nand_chip nand;
 	struct list_head node;
+	unsigned long clk_rate;
+	unsigned int timing_regs[2];
 	int selected;
 	int nsels;
 	struct marvell_nand_chip_sel sels[0];
@@ -106,6 +112,12 @@ struct marvell_nand_chip {
 static inline struct marvell_nand_chip *to_marvell_nand(struct nand_chip *nand)
 {
 	return container_of(nand, struct marvell_nand_chip, nand);
+}
+
+static inline struct marvell_nand_chip_sel *to_nand_sel(struct marvell_nand_chip
+							*nand)
+{
+	return &nand->sels[nand->selected];
 }
 
 struct marvell_nfc {
@@ -189,6 +201,7 @@ static void marvell_nfc_cmd_ctrl(struct mtd_info *mtd, int data,
 				unsigned int ctrl)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	u32 ndcr, val;
 	int ret;
@@ -225,15 +238,21 @@ static void marvell_nfc_cmd_ctrl(struct mtd_info *mtd, int data,
 		 * by the use of NDCB0 only (it acts as a FIFO)
 		 */
 		if (ctrl & NAND_CLE) {
-			writel(NDCB0_CMD_TYPE(TYPE_NAKED_CMD) | data,
-			       nfc->regs + NDCB0);
+			writel(to_nand_sel(marvell_nand)->ndcb0_csel |
+				NDCB0_CMD_TYPE(TYPE_NAKED_CMD) |
+				data,
+				nfc->regs + NDCB0);
 			writel(0, nfc->regs + NDCB0);
-			writel(0, nfc->regs + NDCB0);
+			writel(to_nand_sel(marvell_nand)->ndcb2_addr5,
+				nfc->regs + NDCB0);
 		} else if (ctrl & NAND_ALE) {
-			writel(NDCB0_CMD_TYPE(TYPE_NAKED_ADDR) |
-			       NDCB0_ADDR_CYC(1), nfc->regs + NDCB0);
+			writel(to_nand_sel(marvell_nand)->ndcb0_csel |
+				NDCB0_CMD_TYPE(TYPE_NAKED_ADDR) |
+				NDCB0_ADDR_CYC(1),
+				nfc->regs + NDCB0);
 			writel(data, nfc->regs + NDCB0);
-			writel(0, nfc->regs + NDCB0);
+			writel(to_nand_sel(marvell_nand)->ndcb2_addr5,
+				nfc->regs + NDCB0);
 		}
 
 		/*
@@ -255,17 +274,26 @@ static void marvell_nfc_select_chip(struct mtd_info *mtd, int chip)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
-	struct marvell_nfc *nfc = to_marvell_nfc(marvell_nand->nand.controller);
 
-	
+	if (chip < 0 || chip >= marvell_nand->nsels)
+		return;
+
+	if (chip == marvell_nand->selected)
+		return;
+
+	/* todo: Change timings registers and eventually clk_rate */
+
+	marvell_nand->selected = chip;
 }
 
 static int marvell_nfc_dev_ready(struct mtd_info *mtd)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	int rdy_flag = to_nand_sel(marvell_nand)->rb ? NDSR_RDY1 : NDSR_RDY0;
 
-	return !!(readl(nfc->regs + NDSR) & (NDSR_RDY0 | NDSR_RDY1));
+	return !!(readl(nfc->regs + NDSR) & rdy_flag);
 }
 
 //todo
@@ -290,6 +318,7 @@ static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
 static void marvell_nfc_do_naked_read(struct mtd_info *mtd, int len)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	u32 ndcr, val;
 	int ret;
@@ -312,23 +341,20 @@ static void marvell_nfc_do_naked_read(struct mtd_info *mtd, int len)
 	writel(NDSR_WRCMDREQ, nfc->regs + NDSR);
 
 	/* Trigger the naked read operation */
-	writel(NDCB0_CMD_TYPE(TYPE_READ) |
-	       NDCB0_CMD_XTYPE(XTYPE_LAST_NAKED_READ) |
-	       NDCB0_LEN_OVRD,
-	       nfc->regs + NDCB0);
+	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
+		NDCB0_CMD_TYPE(TYPE_READ) |
+		NDCB0_CMD_XTYPE(XTYPE_LAST_NAKED_READ) |
+		NDCB0_LEN_OVRD,
+		nfc->regs + NDCB0);
 	writel(0, nfc->regs + NDCB0);
-	writel(0, nfc->regs + NDCB0);
+	writel(to_nand_sel(marvell_nand)->ndcb2_addr5,
+		nfc->regs + NDCB0);
 	writel(len, nfc->regs + NDCB0);
 
 	ret = readl_poll_timeout(nfc->regs + NDSR, val,
 				 val & NDSR_RDDREQ, 0, 1000);
 	if (ret) {
 		dev_err(nfc->dev, "Naked read operation: timeout on RDDREQ\n");
-		show(NDCR);
-		show(NDSR);
-		show(NDDB);
-		show(NDECCCTRL);
-		show(NDTR1CS0);
 		return;
 	}
 
@@ -396,7 +422,7 @@ static u8 marvell_nfc_read_byte(struct mtd_info *mtd)
 	u8 data[1];
 
 	marvell_nfc_read_buf(mtd, data, 1);
-//	printk("Read byte: %c\n", data[0]);
+
 	return data[0];
 }
 
@@ -572,7 +598,26 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 			return -EINVAL;
 		}
 
+
 		chip->sels[i].cs = tmp;
+		switch (chip->sels[i].cs) {
+		case 0:
+			chip->sels[i].ndcb0_csel = 0;
+			chip->sels[i].ndcb2_addr5 = 0;
+			break;
+		case 1:
+			chip->sels[i].ndcb0_csel = NDCB0_CSEL;
+			chip->sels[i].ndcb2_addr5 = 0;
+			break;
+		case 2:
+			chip->sels[i].ndcb0_csel = 0;
+			chip->sels[i].ndcb2_addr5 = NDCB2_ADDR5;
+			break;
+		case 3:
+			chip->sels[i].ndcb0_csel = NDCB0_CSEL;
+			chip->sels[i].ndcb2_addr5 = NDCB2_ADDR5;
+			break;
+		}
 
 		/* Retrieve RB id */
 		ret = of_property_read_u32_index(np, "marvell,rb", i, &tmp);
@@ -626,7 +671,7 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 
 //todo	marvell_set_timings(mtd);
 
-	ret = nand_scan_ident(mtd, 1 /*chip->nsels*/, NULL);
+	ret = nand_scan_ident(mtd, chip->nsels, NULL);
 	if (ret)
 		return ret;
 
@@ -676,6 +721,7 @@ static int marvell_nand_chips_init(struct device *dev, struct marvell_nfc *nfc)
 	int nchips = of_get_child_count(np);
 	int ret;
 
+	printk("nb of chips : %d\n", nchips);
 	if (nchips > 8) {
 		dev_err(dev, "too many NAND chips: %d (max = 8)\n", nchips);
 		return -EINVAL;
