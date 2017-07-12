@@ -27,7 +27,9 @@
 /* todo Arbitrary value from old driver pxa3xx_nand.c */
 #define	CHIP_DELAY_TIMEOUT (msecs_to_jiffies(200)*10)
 /* Data FIFO size stated in the Armada 38x family functional specificattion */
-#define FIFO_SIZE 8
+#define NFC_FIFO_SIZE 8
+/* Large pages must be divided into 2kiB chunks */
+#define NFC_MAX_CHUNK 2048
 /* Greatest id for a nand chip select pin (range is [0; NFC_MAX_CS]) */
 #define NFC_MAX_CS 3
 /* Greatest id for a nand ready/busy pin (range is [0; NFC_MAX_RB]) */
@@ -90,7 +92,14 @@
 #define XTYPE_NAKED_WRITE (5)
 #define XTYPE_COMMAND_DISPATCH (5)
 
+#define PRINT 13400
 #define show(x) printk(#x ": 0x%08x [%s:%i]\n", readl(nfc->regs + x), __FUNCTION__, __LINE__)
+#define showif(x) {							\
+		if (probed)						\
+			printk(#x ": 0x%08x [%s:%i]\n",			\
+				readl(nfc->regs + x),			\
+				__FUNCTION__, __LINE__);		\
+	}
 
 struct marvell_nand_chip_sel {
 	int cs;
@@ -129,10 +138,13 @@ struct marvell_nfc {
 	unsigned long assigned_cs;
 	struct list_head chips;
 	int new_cmd;
-	u8 buf[FIFO_SIZE] __attribute__((aligned(4)));
+	u8 buf[NFC_FIFO_SIZE] __attribute__((aligned(4)));
 	int buf_pos;
 	int boundary;
 };
+
+// Debug
+static int probed = false;
 
 static inline struct marvell_nfc *to_marvell_nfc(struct nand_hw_control *ctrl)
 {
@@ -288,14 +300,37 @@ static void marvell_nfc_select_chip(struct mtd_info *mtd, int chip)
 	marvell_nand->selected = chip;
 }
 
+static void marvell_nfc_wait_cmdd(struct mtd_info *mtd)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	int cs_flag, val, ret;
+
+	cs_flag = to_nand_sel(marvell_nand)->ndcb0_csel ?
+		NDSR_CS1_CMDD : NDSR_CS0_CMDD;
+
+	ret = readl_poll_timeout(nfc->regs + NDSR, val,
+				val & cs_flag, 0, 1000);
+	writel(cs_flag, nfc->regs + NDSR);
+	if (ret)
+		dev_err(nfc->dev, "Timeout while waiting for CMDD");
+}
+
 static int marvell_nfc_dev_ready(struct mtd_info *mtd)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	int rdy_flag = to_nand_sel(marvell_nand)->rb ? NDSR_RDY1 : NDSR_RDY0;
+	u32 ndsr = readl(nfc->regs + NDSR);
 
-	return !!(readl(nfc->regs + NDSR) & rdy_flag);
+	if (ndsr & rdy_flag) {
+		writel(rdy_flag, nfc->regs + NDSR);
+		return 1;
+	}
+
+	return 0;
 }
 
 static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
@@ -305,7 +340,6 @@ static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
 	int rdy_flag = to_nand_sel(marvell_nand)->rb ? NDSR_RDY1 : NDSR_RDY0;
 	int val, ret;
 
-	printk("%s\n", __FUNCTION__);
 //	init_completion(&nfc->rdy);
 
 //	marvell_nfc_enable_int(nfc, NDCR_RDYM);
@@ -319,6 +353,10 @@ static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
 
 	ret = readl_poll_timeout(nfc->regs + NDSR, val,
 				val & rdy_flag, 0, 5000);
+	if (!ret)
+		writel(rdy_flag, nfc->regs + NDSR);
+	else
+		printk("Timeout while waiting for RB signal\n");
 
 	return ret;
 }
@@ -360,7 +398,7 @@ static void marvell_nfc_do_naked_read(struct mtd_info *mtd, int len)
 	writel(len, nfc->regs + NDCB0);
 
 	ret = readl_poll_timeout(nfc->regs + NDSR, val,
-				 val & NDSR_RDDREQ, 0, 1000);
+				val & NDSR_RDDREQ, 0, 1000);
 	if (ret) {
 		dev_err(nfc->dev, "Naked read operation: timeout on RDDREQ\n");
 		return;
@@ -389,38 +427,52 @@ static void marvell_nfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 
 	/* If there are valid bytes in the local buffer, copy them */
 	if (nfc->buf_pos) {
-		i = min(len, FIFO_SIZE - nfc->buf_pos);
+		i = min(len, NFC_FIFO_SIZE - nfc->buf_pos);
 		memcpy(buf, &nfc->buf[nfc->buf_pos], i);
-		nfc->buf_pos = (nfc->buf_pos + i) % FIFO_SIZE;
+		nfc->buf_pos = (nfc->buf_pos + i) % NFC_FIFO_SIZE;
 		/* If there is no more data to read, operation is finished */
 		if (i == len) {
 			return;
 		}
 	}
 
-	/* Realize as much FIFO_SIZE aligned reads as possible */
-	while (i < len - FIFO_SIZE) {
+	/* Realize as much NFC_FIFO_SIZE aligned reads as possible */
+	while (i <= len - NFC_FIFO_SIZE) {
 		/* Do a naked read any time boundary is reached */
 		if (i >= nfc->boundary) {
-			rounded_len = round_down(len, FIFO_SIZE);
+			if (len - i > NFC_MAX_CHUNK)
+				rounded_len = NFC_MAX_CHUNK;
+			else if (len - i < NFC_FIFO_SIZE)
+				rounded_len = NFC_FIFO_SIZE;
+			else
+				rounded_len = len - i;
+
+			/* Wait for CMDD signal between operations */
+			if (i)
+				marvell_nfc_wait_cmdd(mtd);
+
 			marvell_nfc_do_naked_read(mtd, rounded_len);
 			nfc->boundary += rounded_len;
 		}
 		buf32 = (u32 *)&buf[i];
 		buf32[0] = readl(nfc->regs + NDDB);
 		buf32[1] = readl(nfc->regs + NDDB);
-		i += FIFO_SIZE;
+		i += NFC_FIFO_SIZE;
 	}
 
-	/* Remaining bytes (read operation is less than FIFO_SIZE bytes) */
+	if (i)
+		marvell_nfc_wait_cmdd(mtd);
+
+	/* Remaining bytes (read operation is less than NFC_FIFO_SIZE bytes) */
 	last_step = len - i;
 	if (last_step) {
-		marvell_nfc_do_naked_read(mtd, FIFO_SIZE);
-		nfc->boundary += FIFO_SIZE;
+		marvell_nfc_do_naked_read(mtd, NFC_FIFO_SIZE);
+		nfc->boundary += NFC_FIFO_SIZE;
 		buf32 = (u32 *)nfc->buf;
 		buf32[0] = readl(nfc->regs + NDDB);
 		buf32[1] = readl(nfc->regs + NDDB);
 		memcpy(buf + i, nfc->buf, last_step);
+		marvell_nfc_wait_cmdd(mtd);
 	}
 	nfc->buf_pos = last_step;
 }
@@ -443,37 +495,148 @@ static u16 marvell_nfc_read_word(struct mtd_info *mtd)
 	return (u16)data[0];
 }
 
-//static int marvell_nfc_init(struct marvell_nfc *nfc)
-//{
-//	int ret;
-//	u32 ndcr, ndsr;
-//
-//	/* Activate the NFCv2 */
-//	ndcr = readl(nfc->regs + NDCR);
-//	writel(ndcr | NDCR_ND_RUN, nfc->regs + NDCR);
-//	/* Wait for WRCMDREQ */
-//	ret = readl_poll_timeout(nfc->regs + NDSR, ndsr,
-//				ndsr & NDSR_WRCMDREQ, 1000, 5000);
-//	if (ret) {
-//		dev_err(nfc->dev,
-//			"Timeout on WRCMDREQ while initializating NFC\n");
-//		return -EIO;
-//	}
-//
-//	/* Reset the command request bit */
-//	writel(ndsr & NDSR_WRCMDREQ, nfc->regs + NDSR);
-//	//todo remove sleep
-////	msleep(10);
-//
-//	/*todo : write 3 commands */
-//	writel(0, nfc->regs + NDCB0);
-//	writel(0, nfc->regs + NDCB1);
-//	writel(0, nfc->regs + NDCB2);
-//	writel(0, nfc->regs + NDCB3);
-////	printk("end of init\n");
-//
-//	return 0;
-//}
+static void marvell_nfc_do_naked_write(struct mtd_info *mtd, int len)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	u32 ndcr, val;
+	int ret;
+
+	/* Deassert ND_RUN and clear NDSR before issuing any command */
+	ndcr = readl(nfc->regs + NDCR);
+	writel(ndcr & ~NDCR_ND_RUN, nfc->regs + NDCR);
+	writel(readl(nfc->regs + NDSR), nfc->regs + NDSR);
+
+	/* Assert ND_RUN bit and wait the NFC to be ready */
+	writel(ndcr | NDCR_ND_RUN, nfc->regs + NDCR);
+	ret = readl_poll_timeout(nfc->regs + NDSR, val,
+				val & NDSR_WRCMDREQ, 0, 1000);
+	if (ret) {
+		dev_err(nfc->dev, "Naked read operation: timeout on WRCMDRE\n");
+		return;
+	}
+
+	/* Command may be written, clear WRCMDREQ status bit */
+	writel(NDSR_WRCMDREQ, nfc->regs + NDSR);
+
+	/* Trigger the naked write operation */
+	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
+		NDCB0_CMD_TYPE(TYPE_WRITE) |
+		NDCB0_CMD_XTYPE(XTYPE_NAKED_WRITE) |
+		NDCB0_LEN_OVRD,
+		nfc->regs + NDCB0);
+	writel(0, nfc->regs + NDCB0);
+	writel(to_nand_sel(marvell_nand)->ndcb2_addr5,
+		nfc->regs + NDCB0);
+	writel(len, nfc->regs + NDCB0);
+
+	ret = readl_poll_timeout(nfc->regs + NDSR, val,
+				val & NDSR_WRDREQ, 0, 1000);
+	if (ret) {
+		dev_err(nfc->dev, "Naked read operation: timeout on WRDREQ\n");
+		show(NDSR);
+		return;
+	}
+
+	/* Clear RDDREQ flag */
+	writel(NDSR_WRDREQ, nfc->regs + NDSR);
+}
+
+static void marvell_nfc_write_buf(struct mtd_info *mtd, const uint8_t *buf,
+				int len)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	u32 *buf32;
+	int rounded_len, i = 0, j;
+
+	while (i < len) {
+		rounded_len = min(len - i, NFC_MAX_CHUNK);
+		marvell_nfc_do_naked_write(mtd, rounded_len);
+
+		buf32 = (u32 *)&buf[i];
+		for (j = 0; j < rounded_len; j += NFC_FIFO_SIZE) {
+			writel(buf32[0], nfc->regs + NDDB);
+			writel(buf32[1], nfc->regs + NDDB);
+			buf32 += 2;
+		}
+		i += rounded_len;
+
+		marvell_nfc_wait_cmdd(mtd);
+	}
+}
+
+#if 0
+static int marvell_nand_ooblayout_ecc_224oob(struct mtd_info *mtd, int section,
+					struct mtd_oob_region *oobregion)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	struct pxa3xx_nand_info *info = host->info_data;
+	int nchunks = mtd->writesize / info->chunk_size;
+
+	if (section >= nchunks)
+		return -ERANGE;
+
+	oobregion->offset = ((info->ecc_size + info->spare_size) * section) +
+		info->spare_size;
+	oobregion->length = info->ecc_size;
+
+	return 0;
+}
+
+static int marvell_nand_ooblayout_free_224oob(struct mtd_info *mtd, int section,
+					struct mtd_oob_region *oobregion)
+{
+	struct nand_chip *chip = mtd_to_nand(mtd);
+	struct pxa3xx_nand_host *host = nand_get_controller_data(chip);
+	struct pxa3xx_nand_info *info = host->info_data;
+	int nchunks = mtd->writesize / info->chunk_size;
+
+	if (section >= nchunks)
+		return -ERANGE;
+
+	if (!info->spare_size)
+		return 0;
+
+	oobregion->offset = section * (info->ecc_size + info->spare_size);
+	oobregion->length = info->spare_size;
+	if (!section) {
+		/*
+		 * Bootrom looks in bytes 0 & 5 for bad blocks for the
+		 * 4KB page / 4bit BCH combination.
+		 */
+		if (mtd->writesize == 4096 && info->chunk_size == 2048) {
+			oobregion->offset += 6;
+			oobregion->length -= 6;
+		} else {
+			oobregion->offset += 2;
+			oobregion->length -= 2;
+		}
+	}
+
+	return 0;
+}
+
+static const struct mtd_ooblayout_ops marvell_nand_ooblayout_224oob_ops = {
+	.ecc = marvell_nand_ooblayout_ecc_224oob,
+	.free = marvell_nand_ooblayout_free_224oob,
+};
+#endif
+
+static int marvell_nfc_init(struct marvell_nfc *nfc)
+{
+//todo: add 8b/16b width support
+	/* ECC operations shall be disabled during first discovery operations */
+	writel(readl(nfc->regs + NDCR) & ~(NDCR_SPARE_EN | NDCR_ECC_EN),
+		nfc->regs + NDCR);
+	writel(0, nfc->regs + NDECCCTRL);
+
+//	writel(readl(nfc->regs + NDTR1CS0) & ~(1<<15), nfc->regs + NDTR1CS0);
+
+	return 0;
+}
 
 /////////////////: todo adapt OUT OF REWORK START
 //#define NDTR0_tCH(c)	(min((c), 7) << 19)
@@ -649,20 +812,6 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 	nand->chip_delay = 200;
 	nand->controller = &nfc->controller;
 
-	// todo: delete, this is done in nand_scan_ident > nand_dt_init
-	/* Set the ECC mode according to the DT */
-	/* nand->ecc.mode = of_get_nand_ecc_mode(np); */
-	/* if (nand->ecc.mode < 0) */
-	/* 	nand->ecc.mode = NAND_ECC_NONE; */
-
-	/* if (nand->ecc.mode == NAND_ECC_SOFT) { */
-	/* 	nand->ecc.algo = of_get_nand_ecc_algo(np); */
-	/* 	if (nand->ecc.algo < 0) { */
-	/* 		dev_warn("default to soft BCH ecc mode\n"); */
-	/* 		nand->ecc.algo = NAND_ECC_BCH; */
-	/* 	} */
-	/* } */
-
 	nand_set_flash_node(nand, np);
 	nand->select_chip = marvell_nfc_select_chip;
 	nand->cmd_ctrl = marvell_nfc_cmd_ctrl;
@@ -671,7 +820,7 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 	nand->read_byte = marvell_nfc_read_byte;
 	nand->read_word = marvell_nfc_read_word;
 	nand->read_buf = marvell_nfc_read_buf;
-//todo	nand->write_buf = marvell_nfc_write_buf;
+	nand->write_buf = marvell_nfc_write_buf;
 //todo	nand->setup_data_interface = sunxi_nfc_setup_data_interface;
 
 	mtd = nand_to_mtd(nand);
@@ -803,16 +952,7 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 	if (ret)
 		goto out_clk_unprepare;
 
-//toto: this looks useless and may be deleted
-//	ret = marvell_nfc_init(nfc);
-//	if (ret)
-//		return ret;
-	//todo rendre ça plus joli
-	writel(readl(nfc->regs + NDCR) & ~(NDCR_SPARE_EN | NDCR_ECC_EN),
-	       nfc->regs + NDCR);
-	writel(readl(nfc->regs + NDTR1CS0) & ~(1<<15), nfc->regs + NDTR1CS0);
-	//todo et ça aussi
-	writel(0, nfc->regs + NDECCCTRL);
+	marvell_nfc_init(nfc);
 
 	platform_set_drvdata(pdev, nfc);
 
@@ -820,6 +960,7 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 	if (ret)
 		goto out_clk_unprepare;
 
+	probed = true;
 	return 0;
 
 out_clk_unprepare:
@@ -840,7 +981,7 @@ static int marvell_nfc_remove(struct platform_device *pdev)
 }
 
 static const struct of_device_id marvell_nfc_ids[] = {
-	{ .compatible = "marvell,armada370-nfc" }, //todo s/nand/nfc/
+	{ .compatible = "marvell,armada370-nfc" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, marvell_nand_match);
