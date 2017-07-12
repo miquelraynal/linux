@@ -1,0 +1,47 @@
+Marvell NAND Flash Controller (NFC)
+
+Required properties:
+- compatible: "marvell,armada370-nfc".
+- reg: shall contain registers location and length for data and reg.
+- interrupts: shall define the nand controller interrupt.
+- #address-cells: shall be set to 1. Encode the nand CS.
+- #size-cells: shall be set to 0.
+- clocks: shall reference nand controller clocks.
+
+Optional properties:
+- dmas: shall reference DMA channel associated to the NAND controller.
+- dma-names: shall be "rxtx".
+
+Optional children nodes:
+Children nodes represent the available nand chips.
+
+Required properties:
+- reg: shall contain the native Chip Select ids (0-3)
+- marvell,rb: shall contain the native Ready/Busy ids (0-1)
+
+Optional properties:
+- nand-ecc-mode: one of the supported ECC modes ("none", "soft", "hw",
+  "hw_syndrome", or "hw_oob_first").
+- nand-ecc-algo: algorithm to use if previous choice was "soft"
+  ("hamming" or "bch).
+
+See Documentation/devicetree/bindings/mtd/nand.txt for generic bindings.
+
+
+Examples:
+nfc: nand@01c03000 {
+	compatible = "allwinner,sun4i-a10-nand";
+	reg = <0x01c03000 0x1000>;
+	interrupts = <GIC_SPI 84 IRQ_TYPE_LEVEL_HIGH>;
+	clocks = <&coredivclk 0>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+	nand-ecc-mode = "soft_bch";
+
+	nand@0 {
+		reg = <0>;
+		marvell,rb = <0>;
+		nand-ecc-mode = "hw";
+	};
+};
