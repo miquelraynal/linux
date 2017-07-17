@@ -1984,6 +1984,42 @@ static int gpmi_init_last(struct gpmi_nand_data *this)
 	return 0;
 }
 
+#if 0
+static int gpmi_setup_data_interface(struct mtd_info *mtd,
+				const struct nand_data_interface *conf,
+				bool check_only)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct gpmi_nand_data *this = container_of(nand, struct gpmi_nand_data, nand);
+	struct resources  *r = &this->resources;
+	int mode = onfi_get_async_timing_mode(nand);
+	unsigned long rate;
+
+	/* Enable the asynchronous EDO feature. */
+	if (GPMI_IS_MX6(this) && nand->onfi_version) {
+
+		/* We only support the timing mode 4 and mode 5. */
+		/* If chip is using timing mode 5, set the main IO clock at 100MHz instead of 80MHz for mode 4 */
+		if (mode & ONFI_TIMING_MODE_5)
+			rate = 100000000;
+		else if (mode & ONFI_TIMING_MODE_4)
+			rate = 80000000;
+		else
+			return 0;
+
+		clk_set_rate(r->clock[0], rate);
+
+		/* Let the gpmi_begin() re-compute the timing again. */
+		this->flags &= ~GPMI_TIMING_INIT_OK;
+
+		this->flags |= GPMI_ASYNC_EDO_ENABLED;
+		this->timing_mode = mode;
+	}
+
+	return 0;
+}
+#endif
+
 static int gpmi_nand_init(struct gpmi_nand_data *this)
 {
 	struct nand_chip *chip = &this->nand;
@@ -2009,6 +2045,7 @@ static int gpmi_nand_init(struct gpmi_nand_data *this)
 	chip->badblock_pattern	= &gpmi_bbt_descr;
 	chip->block_markbad	= gpmi_block_markbad;
 	chip->options		|= NAND_NO_SUBPAGE_WRITE;
+//	chip->setup_data_interface = gpmi_setup_data_interface;
 
 	/* Set up swap_block_mark, must be set before the gpmi_set_geometry() */
 	this->swap_block_mark = !GPMI_IS_MX23(this);
