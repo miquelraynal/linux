@@ -2000,6 +2000,7 @@ static int nand_do_read_ops(struct mtd_info *mtd, loff_t from,
 	unsigned int max_bitflips = 0;
 	int retry_mode = 0;
 	bool ecc_fail = false;
+	int cached = NAND_CACHE_NONE;
 
 	chipnr = (int)(from >> chip->chip_shift);
 	chip->select_chip(mtd, chipnr);
@@ -2018,6 +2019,25 @@ static int nand_do_read_ops(struct mtd_info *mtd, loff_t from,
 
 		bytes = min(mtd->writesize - col, readlen);
 		aligned = (bytes == mtd->writesize);
+		if (NAND_HAS_CACHEREAD(chip)) {
+			switch (cached) {
+			case NAND_CACHE_NONE:
+				if (col == 0 && readlen > bytes)
+					cached = NAND_CACHE_FIRST;
+				break;
+			case NAND_CACHE_FIRST:
+			case NAND_CACHE_RUNNING:
+				if (readlen > bytes)
+					cached = NAND_CACHE_RUNNING;
+				else
+					cached = NAND_CACHE_LAST;
+				break;
+			default:
+			case NAND_CACHE_LAST:
+				cached = NAND_CACHE_NONE;
+				break;
+			}
+		}
 
 		if (!aligned)
 			use_bufpoi = 1;
@@ -2037,8 +2057,27 @@ static int nand_do_read_ops(struct mtd_info *mtd, loff_t from,
 						 __func__, buf);
 
 read_retry:
-			if (nand_standard_page_accessors(&chip->ecc))
-				chip->cmdfunc(mtd, NAND_CMD_READ0, 0x00, page);
+			if (nand_standard_page_accessors(&chip->ecc)) {
+				/*
+				 * READ0 operation done when not using cache
+				 * or at the first run on of cached accesses
+				 */
+				if (!cached || cached == NAND_CACHE_FIRST)
+					chip->cmdfunc(mtd, NAND_CMD_READ0,
+						0x00, page);
+
+				/* Use CACHEREAD for every page but the last */
+				if (cached == NAND_CACHE_FIRST ||
+					cached == NAND_CACHE_RUNNING)
+					chip->cmdfunc(mtd,
+						NAND_CMD_CACHEDREAD,
+						-1, -1);
+
+				if (cached == NAND_CACHE_LAST)
+					chip->cmdfunc(mtd,
+						NAND_CMD_LASTCACHEDRD,
+						-1, -1);
+			}
 
 			/*
 			 * Now read the page into the buffer.  Absent an error,
@@ -2105,6 +2144,9 @@ read_retry:
 
 					/* Reset failures; retry */
 					mtd->ecc_stats.failed = ecc_failures;
+					if (NAND_HAS_CACHEREAD(chip) &&
+						readlen > bytes)
+						cached = NAND_CACHE_FIRST;
 					goto read_retry;
 				} else {
 					/* No more retry modes; real failure */
@@ -3680,6 +3722,9 @@ static int nand_flash_detect_onfi(struct nand_chip *chip)
 
 	if (onfi_opt_cmd(chip) & ONFI_OPTCMD_PROG_CACHE)
 		chip->options |= NAND_CACHEPRG;
+
+	if (onfi_opt_cmd(chip) & ONFI_OPTCMD_READ_CACHE)
+		chip->options |= NAND_CACHEREAD;
 
 	if (p->ecc_bits != 0xff) {
 		chip->ecc_strength_ds = p->ecc_bits;

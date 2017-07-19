@@ -77,6 +77,7 @@ int nand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
 #define NAND_CMD_READ1		1
 #define NAND_CMD_RNDOUT		5
 #define NAND_CMD_PAGEPROG	0x10
+#define NAND_CMD_READSTART	0x30
 #define NAND_CMD_READOOB	0x50
 #define NAND_CMD_ERASE1		0x60
 #define NAND_CMD_STATUS		0x70
@@ -94,8 +95,9 @@ int nand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
 #define NAND_CMD_UNLOCK2	0x24
 
 /* Extended commands for large page devices */
-#define NAND_CMD_READSTART	0x30
 #define NAND_CMD_RNDOUTSTART	0xE0
+#define NAND_CMD_CACHEDREAD	0x31
+#define NAND_CMD_LASTCACHEDRD	0x3F
 #define NAND_CMD_CACHEDPROG	0x15
 
 #define NAND_CMD_NONE		-1
@@ -106,6 +108,16 @@ int nand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
 #define NAND_STATUS_TRUE_READY	0x20
 #define NAND_STATUS_READY	0x40
 #define NAND_STATUS_WP		0x80
+
+/*
+ * Constants for cached modes
+ */
+enum nand_cache_state {
+	NAND_CACHE_NONE = 0,
+	NAND_CACHE_FIRST,
+	NAND_CACHE_RUNNING,
+	NAND_CACHE_LAST,
+};
 
 /*
  * Constants for ECC_MODES
@@ -159,6 +171,8 @@ enum nand_ecc_algo {
  */
 /* Buswidth is 16 bit */
 #define NAND_BUSWIDTH_16	0x00000002
+/* Chip has read cache function */
+#define NAND_CACHEREAD		0x00000004
 /* Chip has cache program function */
 #define NAND_CACHEPRG		0x00000008
 /*
@@ -191,6 +205,7 @@ enum nand_ecc_algo {
 
 /* Macros to identify the above */
 #define NAND_HAS_CACHEPROG(chip) ((chip->options & NAND_CACHEPRG))
+#define NAND_HAS_CACHEREAD(chip) ((chip->options & NAND_CACHEREAD))
 #define NAND_HAS_SUBPAGE_READ(chip) ((chip->options & NAND_SUBPAGE_READ))
 #define NAND_HAS_SUBPAGE_WRITE(chip) !((chip)->options & NAND_NO_SUBPAGE_WRITE)
 
@@ -245,6 +260,7 @@ struct nand_chip;
 
 /* ONFI optional commands */
 #define ONFI_OPTCMD_PROG_CACHE (1 << 0)
+#define ONFI_OPTCMD_READ_CACHE (1 << 1)
 
 /* ONFI timing mode, used in both asynchronous and synchronous mode */
 #define ONFI_TIMING_MODE_0		(1 << 0)
