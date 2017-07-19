@@ -243,6 +243,9 @@ struct nand_chip;
 #define ONFI_FEATURE_16_BIT_BUS		(1 << 0)
 #define ONFI_FEATURE_EXT_PARAM_PAGE	(1 << 7)
 
+/* ONFI optional commands */
+#define ONFI_OPTCMD_PROG_CACHE (1 << 0)
+
 /* ONFI timing mode, used in both asynchronous and synchronous mode */
 #define ONFI_TIMING_MODE_0		(1 << 0)
 #define ONFI_TIMING_MODE_1		(1 << 1)
@@ -1176,6 +1179,14 @@ struct platform_nand_data {
 static inline int onfi_feature(struct nand_chip *chip)
 {
 	return chip->onfi_version ? le16_to_cpu(chip->onfi_params.features) : 0;
+}
+
+
+/* return the supported optional commands. */
+static inline int onfi_opt_cmd(struct nand_chip *chip)
+{
+	return chip->onfi_version ?
+		le16_to_cpu(chip->onfi_params.opt_cmd) : 0;
 }
 
 /* return the supported asynchronous timing mode. */

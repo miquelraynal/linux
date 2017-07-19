@@ -2741,12 +2741,6 @@ static int nand_write_page(struct mtd_info *mtd, struct nand_chip *chip,
 	if (status < 0)
 		return status;
 
-	/*
-	 * Cached progamming disabled for now. Not sure if it's worth the
-	 * trouble. The speed gain is not very impressive. (2.3->2.6Mib/s).
-	 */
-	cached = 0;
-
 	if (!cached || !NAND_HAS_CACHEPROG(chip)) {
 
 		if (nand_standard_page_accessors(&chip->ecc))
@@ -3683,6 +3677,9 @@ static int nand_flash_detect_onfi(struct nand_chip *chip)
 
 	if (onfi_feature(chip) & ONFI_FEATURE_16_BIT_BUS)
 		chip->options |= NAND_BUSWIDTH_16;
+
+	if (onfi_opt_cmd(chip) & ONFI_OPTCMD_PROG_CACHE)
+		chip->options |= NAND_CACHEPRG;
 
 	if (p->ecc_bits != 0xff) {
 		chip->ecc_strength_ds = p->ecc_bits;
