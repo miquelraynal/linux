@@ -948,7 +948,7 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 
 	marvell_nfc_disable_int(nfc, ALL_INT);
 	ret = devm_request_irq(dev, irq, marvell_nfc_irq,
-			0, "marvell-nand", nfc);
+			0, "marvell-nfc", nfc);
 	if (ret)
 		goto out_clk_unprepare;
 
