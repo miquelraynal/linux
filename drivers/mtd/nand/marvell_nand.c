@@ -140,7 +140,6 @@ struct marvell_nfc {
 	int new_cmd;
 	u8 buf[NFC_FIFO_SIZE] __attribute__((aligned(4)));
 	int buf_pos;
-	int boundary;
 };
 
 // Debug
@@ -413,7 +412,7 @@ static void marvell_nfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	u32 *buf32;
-	int rounded_len, last_step, i = 0;
+	int rounded_len, last_step = 0, i = 0, boundary = 0;
 
 	/*
 	 * ->new_cmd flag indicates ->cmd_ctrl() has been triggered and a naked
@@ -422,7 +421,6 @@ static void marvell_nfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 	if (nfc->new_cmd) {
 		nfc->new_cmd = false;
 		nfc->buf_pos = 0;
-		nfc->boundary = 0;
 	}
 
 	/* If there are valid bytes in the local buffer, copy them */
@@ -436,44 +434,45 @@ static void marvell_nfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 		}
 	}
 
-	/* Realize as much NFC_FIFO_SIZE aligned reads as possible */
-	while (i <= len - NFC_FIFO_SIZE) {
+	/* Drain FIFO */
+	while (i < len) {
 		/* Do a naked read any time boundary is reached */
-		if (i >= nfc->boundary) {
+		if (i >= boundary) {
 			if (len - i > NFC_MAX_CHUNK)
 				rounded_len = NFC_MAX_CHUNK;
-			else if (len - i < NFC_FIFO_SIZE)
-				rounded_len = NFC_FIFO_SIZE;
 			else
-				rounded_len = len - i;
+				rounded_len = round_up(len - i, NFC_FIFO_SIZE);
 
 			/* Wait for CMDD signal between operations */
 			if (i)
 				marvell_nfc_wait_cmdd(mtd);
 
 			marvell_nfc_do_naked_read(mtd, rounded_len);
-			nfc->boundary += rounded_len;
+			boundary += rounded_len;
 		}
-		buf32 = (u32 *)&buf[i];
+
+		if (len - i >= NFC_FIFO_SIZE) {
+			buf32 = (u32 *)&buf[i];
+			last_step = 0;
+		} else { /* Last read if not 8 bytes long */
+			buf32 = (u32 *)nfc->buf;
+			last_step = len - i;
+		}
+
 		buf32[0] = readl(nfc->regs + NDDB);
 		buf32[1] = readl(nfc->regs + NDDB);
-		i += NFC_FIFO_SIZE;
+
+		if (last_step == 0) {
+			i += NFC_FIFO_SIZE;
+		} else {
+			memcpy(buf + i, nfc->buf, last_step);
+			i += last_step;
+		}
 	}
 
 	if (i)
 		marvell_nfc_wait_cmdd(mtd);
 
-	/* Remaining bytes (read operation is less than NFC_FIFO_SIZE bytes) */
-	last_step = len - i;
-	if (last_step) {
-		marvell_nfc_do_naked_read(mtd, NFC_FIFO_SIZE);
-		nfc->boundary += NFC_FIFO_SIZE;
-		buf32 = (u32 *)nfc->buf;
-		buf32[0] = readl(nfc->regs + NDDB);
-		buf32[1] = readl(nfc->regs + NDDB);
-		memcpy(buf + i, nfc->buf, last_step);
-		marvell_nfc_wait_cmdd(mtd);
-	}
 	nfc->buf_pos = last_step;
 }
 
@@ -845,10 +844,7 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 //todo		nand->bbt_td = &bbt_main_descr;
 //todo		nand->bbt_md = &bbt_mirror_descr;
 	}
-	if (nand->options & NAND_NEED_SCRAMBLING)
-		nand->options |= NAND_NO_SUBPAGE_WRITE;
 
-//todo	nand->options |= NAND_SUBPAGE_READ;
 
 /*todo	ret = marvell_nand_ecc_init(mtd, &nand->ecc, np);
 	if (ret) {
@@ -862,6 +858,9 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 		dev_err(dev, "nand_scan_tail failed: %d\n", ret);
 		return ret;
 	}
+
+	/* Subpage write not available */
+	nand->options |= NAND_NO_SUBPAGE_WRITE;
 
 	ret = mtd_device_register(mtd, NULL, 0);
 	if (ret) {
