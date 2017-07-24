@@ -314,7 +314,7 @@ static void marvell_nfc_wait_cmdd(struct mtd_info *mtd)
 				val & cs_flag, 0, 1000);
 	writel(cs_flag, nfc->regs + NDSR);
 	if (ret)
-		dev_err(nfc->dev, "Timeout while waiting for CMDD");
+		dev_err(nfc->dev, "Timeout while waiting for CMDD\n");
 }
 
 static int marvell_nfc_dev_ready(struct mtd_info *mtd)
@@ -356,7 +356,7 @@ static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
 	if (!ret)
 		writel(rdy_flag, nfc->regs + NDSR);
 	else
-		printk("Timeout while waiting for RB signal\n");
+		dev_err(nfc->dev, "Timeout while waiting for RB signal\n");
 
 	return ret;
 }
@@ -727,8 +727,10 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 	u32 tmp;
 
 	/* Check there is only one line of CS pins */
-	if (!of_get_property(np, "reg", &nsels))
+	if (!of_get_property(np, "reg", &nsels)) {
+		dev_err(dev, "missing reg property\n");
 		return -EINVAL;
+	}
 
 	nsels /= sizeof(u32);
 	if (!nsels) {
@@ -829,8 +831,10 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 //todo	marvell_set_timings(mtd);
 
 	ret = nand_scan_ident(mtd, chip->nsels, NULL);
-	if (ret)
+	if (ret) {
+		dev_err(dev, "could not identify the nand chip\n");
 		return ret;
+	}
 
 	if (nand->bbt_options & NAND_BBT_USE_FLASH) {
 		/*
@@ -916,7 +920,7 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 	int ret;
 	int irq;
 
-	printk("*** MARVELL NAND REWORK ***\n");
+	printk("*** MARVELL NFC DRIVER REWORK ***\n");
 	/* Allocate memory for the device structure (and zero it) */
 	nfc = devm_kzalloc(&pdev->dev, sizeof(struct marvell_nfc),
 			     GFP_KERNEL);
