@@ -101,6 +101,18 @@
 				__FUNCTION__, __LINE__);		\
 	}
 
+/* Marvell ECC engine works differently than the others, in order to limit the size of the IP hardware engineers choose to set a fixed number of bytes for TODO */
+struct marvell_hw_ecc_layout {
+	int full_chunk_cnt;
+	int data_bytes;
+	int spare_bytes;
+	int ecc_bytes;
+	int last_chunk_cnt;
+	int last_data_bytes;
+	int last_spare_bytes;
+	int last_ecc_bytes;
+};
+
 struct marvell_nand_chip_sel {
 	int cs;
 	u32 ndcb0_csel;
@@ -137,9 +149,15 @@ struct marvell_nfc {
 	struct completion cmdd, rdy;
 	unsigned long assigned_cs;
 	struct list_head chips;
+
+	/* Buffers handling */
 	int new_cmd;
 	u8 buf[NFC_FIFO_SIZE] __attribute__((aligned(4)));
 	int buf_pos;
+
+	/* Hardware ECC handling */
+	int hw_ecc_algo;
+	struct marvell_hw_ecc_layout layout;
 };
 
 // Debug
@@ -566,73 +584,374 @@ static void marvell_nfc_write_buf(struct mtd_info *mtd, const uint8_t *buf,
 	}
 }
 
-#if 0
-static int marvell_nand_ooblayout_ecc_224oob(struct mtd_info *mtd, int section,
-					struct mtd_oob_region *oobregion)
+static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
+				      struct nand_chip *chip, uint8_t *buf,
+				      int oob_required, int page)
+{
+//	struct nand_ecc_ctrl *ecc = &chip->ecc;
+	unsigned int max_bitflips = 0;
+/*	int ret, i, cur_off = 0;
+	bool raw_mode = false;
+
+	marvell_nfc_hw_ecc_enable(mtd);
+
+	for (i = 0; i < ecc->steps; i++) {
+		int data_off = i * ecc->size;
+		int oob_off = i * (ecc->bytes + 4);
+		u8 *data = buf + data_off;
+		u8 *oob = chip->oob_poi + oob_off;
+
+		ret = marvell_nfc_hw_ecc_read_chunk(mtd, data, data_off, oob,
+						  oob_off + mtd->writesize,
+						  &cur_off, &max_bitflips,
+						  !i, oob_required, page);
+		if (ret < 0)
+			return ret;
+		else if (ret)
+			raw_mode = true;
+	}
+
+	if (oob_required)
+		marvell_nfc_hw_ecc_read_extra_oob(mtd, chip->oob_poi, &cur_off,
+						!raw_mode, page);
+
+	marvell_nfc_hw_ecc_disable(mtd);
+*/
+	return max_bitflips;
+}
+
+static int marvell_nfc_hw_ecc_write_page(struct mtd_info *mtd,
+				       struct nand_chip *chip,
+				       const uint8_t *buf, int oob_required,
+				       int page)
+{
+/*	struct nand_ecc_ctrl *ecc = &chip->ecc;
+	int ret, i, cur_off = 0;
+
+	marvell_nfc_hw_ecc_enable(mtd);
+
+	for (i = 0; i < ecc->steps; i++) {
+		int data_off = i * ecc->size;
+		int oob_off = i * (ecc->bytes + 4);
+		const u8 *data = buf + data_off;
+		const u8 *oob = chip->oob_poi + oob_off;
+
+		ret = marvell_nfc_hw_ecc_write_chunk(mtd, data, data_off, oob,
+						   oob_off + mtd->writesize,
+						   &cur_off, !i, page);
+		if (ret)
+			return ret;
+	}
+
+	if (oob_required || (chip->options & NAND_NEED_SCRAMBLING))
+		marvell_nfc_hw_ecc_write_extra_oob(mtd, chip->oob_poi,
+						 &cur_off, page);
+
+	marvell_nfc_hw_ecc_disable(mtd);
+
+*/	return 0;
+}
+
+static int marvell_nand_ooblayout_hw_hmg_ecc(struct mtd_info *mtd, int section,
+					     struct mtd_oob_region *oobregion)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	struct pxa3xx_nand_info *info = host->info_data;
-	int nchunks = mtd->writesize / info->chunk_size;
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
 
-	if (section >= nchunks)
+	if (section)
 		return -ERANGE;
 
-	oobregion->offset = ((info->ecc_size + info->spare_size) * section) +
-		info->spare_size;
-	oobregion->length = info->ecc_size;
+	oobregion->offset = 0; //todo: bbm should be bytes 0 & 1 ?
+	oobregion->length = lt->ecc_bytes;
 
 	return 0;
 }
 
-static int marvell_nand_ooblayout_free_224oob(struct mtd_info *mtd, int section,
-					struct mtd_oob_region *oobregion)
+static int marvell_nand_ooblayout_hw_hmg_free(struct mtd_info *mtd, int section,
+					      struct mtd_oob_region *oobregion)
 {
-	struct nand_chip *chip = mtd_to_nand(mtd);
-	struct pxa3xx_nand_host *host = nand_get_controller_data(chip);
-	struct pxa3xx_nand_info *info = host->info_data;
-	int nchunks = mtd->writesize / info->chunk_size;
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
 
-	if (section >= nchunks)
+	if (section)
 		return -ERANGE;
 
-	if (!info->spare_size)
-		return 0;
+	oobregion->offset = lt->ecc_bytes;
+	oobregion->length = mtd->oobsize - lt->ecc_bytes;
 
-	oobregion->offset = section * (info->ecc_size + info->spare_size);
-	oobregion->length = info->spare_size;
-	if (!section) {
-		/*
-		 * Bootrom looks in bytes 0 & 5 for bad blocks for the
-		 * 4KB page / 4bit BCH combination.
-		 */
-		if (mtd->writesize == 4096 && info->chunk_size == 2048) {
-			oobregion->offset += 6;
-			oobregion->length -= 6;
-		} else {
-			oobregion->offset += 2;
-			oobregion->length -= 2;
-		}
+	return 0;
+}
+
+static const struct mtd_ooblayout_ops marvell_nand_ooblayout_hw_hmg_ops = {
+	.ecc = marvell_nand_ooblayout_hw_hmg_ecc,
+	.free = marvell_nand_ooblayout_hw_hmg_free,
+};
+
+static int marvell_nand_ooblayout_hw_bch_ecc(struct mtd_info *mtd, int section,
+					     struct mtd_oob_region *oobregion)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
+
+	/* ECC position is the same for all full chunks */
+	if (section < lt->full_chunk_cnt) {
+		oobregion->offset = lt->spare_bytes +
+			(section * (lt->spare_bytes + lt->ecc_bytes));
+		oobregion->length = lt->ecc_bytes;
+		/* Enventually last chunk may have a different layout */
+	} else if (section == lt->full_chunk_cnt && lt->last_ecc_bytes) {
+		oobregion->offset = lt->last_spare_bytes +
+			(section * (lt->spare_bytes + lt->ecc_bytes));
+		oobregion->length = lt->last_ecc_bytes;
+	} else {
+		return -ERANGE;
 	}
 
 	return 0;
 }
 
-static const struct mtd_ooblayout_ops marvell_nand_ooblayout_224oob_ops = {
-	.ecc = marvell_nand_ooblayout_ecc_224oob,
-	.free = marvell_nand_ooblayout_free_224oob,
-};
-#endif
-
-static int marvell_nfc_init(struct marvell_nfc *nfc)
+static int marvell_nand_ooblayout_hw_bch_free(struct mtd_info *mtd, int section,
+					      struct mtd_oob_region *oobregion)
 {
-//todo: add 8b/16b width support
-	/* ECC operations shall be disabled during first discovery operations */
-	writel(readl(nfc->regs + NDCR) & ~(NDCR_SPARE_EN | NDCR_ECC_EN),
-		nfc->regs + NDCR);
-	writel(0, nfc->regs + NDECCCTRL);
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	struct nand_ecc_ctrl *ecc = &nand->ecc;
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
 
-//	writel(readl(nfc->regs + NDTR1CS0) & ~(1<<15), nfc->regs + NDTR1CS0);
+	/* Free bytes are at the same position for all full chunks */
+	if (section < lt->full_chunk_cnt) {
+		oobregion->offset = section * (lt->spare_bytes + lt->ecc_bytes);
+		oobregion->length = lt->spare_bytes;
+		/* Enventually last chunk may have a different layout */
+	} else if (section == lt->full_chunk_cnt && lt->last_spare_bytes) {
+		oobregion->offset = section * (lt->spare_bytes + lt->ecc_bytes);
+		oobregion->length = lt->last_spare_bytes;
+	} else {
+		return -ERANGE;
+	}
+
+	/* BBM sometimes are in the OOB data */
+	if (mtd->writesize == 2048 && ecc->strength == 4 && section == 1) {
+		oobregion->length -= 2;
+	} else if (mtd->writesize == 4096 && ecc->strength == 4 && section == 1) {
+		oobregion->offset += 8;
+		oobregion->length -= 8;
+	}
+
+	return 0;
+}
+
+static const struct mtd_ooblayout_ops marvell_nand_ooblayout_hw_bch_ops = {
+	.ecc = marvell_nand_ooblayout_hw_bch_ecc,
+	.free = marvell_nand_ooblayout_hw_bch_free,
+};
+
+static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
+					      struct nand_ecc_ctrl *ecc,
+					      struct device_node *np)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
+	struct marvell_nfc *nfc = to_marvell_nfc(marvell_nand->nand.controller);
+
+	if (mtd->writesize == 512 && ecc->strength == 1) {
+		nfc->hw_ecc_algo = NAND_ECC_HAMMING;
+		nfc->layout.full_chunk_cnt = 1;
+		nfc->layout.data_bytes = 512;
+		nfc->layout.ecc_bytes = 6;
+
+	} else if (mtd->writesize == 2048 && ecc->strength == 1) {
+		nfc->hw_ecc_algo = NAND_ECC_HAMMING;
+		nfc->layout.full_chunk_cnt = 1;
+		nfc->layout.data_bytes = 2048;
+		nfc->layout.ecc_bytes = 24;
+
+	} else if (mtd->writesize == 2048 && ecc->strength == 4) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 1;
+		nfc->layout.data_bytes = 2048;
+		nfc->layout.spare_bytes = 32;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 0;
+		nfc->layout.last_data_bytes = 0;
+		nfc->layout.last_spare_bytes = 0;
+		nfc->layout.last_ecc_bytes = 0;
+
+	} else if (mtd->writesize == 2048 && ecc->strength == 8) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 1;
+		nfc->layout.data_bytes = 1024;
+		nfc->layout.spare_bytes = 0;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 1;
+		nfc->layout.last_data_bytes = 1024;
+		nfc->layout.last_spare_bytes = 32;
+		nfc->layout.last_ecc_bytes = 30;
+
+	} else if (mtd->writesize == 2048 && ecc->strength == 12) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 2;
+		nfc->layout.data_bytes = 704;
+		nfc->layout.spare_bytes = 0;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 1;
+		nfc->layout.last_data_bytes = 640;
+		nfc->layout.last_spare_bytes = 0;
+		nfc->layout.last_ecc_bytes = 30;
+
+	} else if (mtd->writesize == 2048 && ecc->strength == 16) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 4;
+		nfc->layout.data_bytes = 512;
+		nfc->layout.spare_bytes = 0;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 1;
+		nfc->layout.last_data_bytes = 0;
+		nfc->layout.last_spare_bytes = 32;
+		nfc->layout.last_ecc_bytes = 30;
+
+	} else if (mtd->writesize == 4096 && ecc->strength == 4) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 2;
+		nfc->layout.data_bytes = 2048;
+		nfc->layout.spare_bytes = 32;
+		nfc->layout.ecc_bytes = 30;
+
+	} else if (mtd->writesize == 4096 && ecc->strength == 8) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 4;
+		nfc->layout.data_bytes = 1024;
+		nfc->layout.spare_bytes = 0;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 1;
+		nfc->layout.last_data_bytes = 0;
+		nfc->layout.last_spare_bytes = 64;
+		nfc->layout.last_ecc_bytes = 30;
+
+	} else if (mtd->writesize == 4096 && ecc->strength == 12) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 5;
+		nfc->layout.data_bytes = 704;
+		nfc->layout.spare_bytes = 0;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 1;
+		nfc->layout.last_data_bytes = 576;
+		nfc->layout.last_spare_bytes = 32;
+		nfc->layout.last_ecc_bytes = 30;
+
+	} else if (mtd->writesize == 4096 && ecc->strength == 16) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 8;
+		nfc->layout.data_bytes = 512;
+		nfc->layout.spare_bytes = 0;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 1;
+		nfc->layout.last_data_bytes = 0;
+		nfc->layout.last_spare_bytes = 32;
+		nfc->layout.last_ecc_bytes = 30;
+
+	} else if (mtd->writesize == 8192 && ecc->strength == 4) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 4;
+		nfc->layout.data_bytes = 2016;
+		nfc->layout.spare_bytes = 32;
+		nfc->layout.ecc_bytes = 30;
+
+	} else if (mtd->writesize == 8192 && ecc->strength == 8) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 8;
+		nfc->layout.data_bytes = 1024;
+		nfc->layout.spare_bytes = 0;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 1;
+		nfc->layout.last_data_bytes = 0;
+		nfc->layout.last_spare_bytes = 160;
+		nfc->layout.last_ecc_bytes = 30;
+
+	} else if (mtd->writesize == 8192 && ecc->strength == 12) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 11;
+		nfc->layout.data_bytes = 704;
+		nfc->layout.spare_bytes = 0;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 1;
+		nfc->layout.last_data_bytes = 448;
+		nfc->layout.last_spare_bytes = 64;
+		nfc->layout.last_ecc_bytes = 30;
+
+	} else if (mtd->writesize == 8192 && ecc->strength == 16) {
+		nfc->hw_ecc_algo = NAND_ECC_BCH;
+		nfc->layout.full_chunk_cnt = 16;
+		nfc->layout.data_bytes = 512;
+		nfc->layout.spare_bytes = 0;
+		nfc->layout.ecc_bytes = 30;
+		nfc->layout.last_chunk_cnt = 1;
+		nfc->layout.last_data_bytes = 0;
+		nfc->layout.last_spare_bytes = 32;
+		nfc->layout.last_ecc_bytes = 30;
+
+	} else {
+		dev_err(nfc->dev,
+			"ECC strength %d at page size %d is not supported\n",
+			ecc->strength, mtd->writesize);
+		return -ENODEV;
+	}
+
+	switch (nfc->hw_ecc_algo) {
+	case NAND_ECC_HAMMING:
+		mtd_set_ooblayout(mtd, &marvell_nand_ooblayout_hw_hmg_ops);
+		ecc->strength = 1;
+		break;
+	case NAND_ECC_BCH:
+		mtd_set_ooblayout(mtd, &marvell_nand_ooblayout_hw_bch_ops);
+		ecc->strength = 16;
+		break;
+	}
+
+	ecc->read_page = marvell_nfc_hw_ecc_read_page;
+//	ecc->read_subpage = sunxi_nfc_hw_ecc_read_subpage;
+	ecc->write_page = marvell_nfc_hw_ecc_write_page;
+//	ecc->read_oob = sunxi_nfc_hw_common_ecc_read_oob;
+//	ecc->write_oob = sunxi_nfc_hw_common_ecc_write_oob;
+
+	/* TODO: support DMA */
+
+	return 0;
+}
+
+static int marvell_nand_ecc_init(struct mtd_info *mtd, struct nand_ecc_ctrl *ecc,
+			       struct device_node *np)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	int ret;
+
+	if (!ecc->size) {
+		ecc->size = nand->ecc_step_ds;
+		ecc->strength = nand->ecc_strength_ds;
+	}
+
+	if (!ecc->size || !ecc->strength)
+		return -EINVAL;
+
+	switch (ecc->mode) {
+	case NAND_ECC_HW_SYNDROME:
+		ecc->mode = NAND_ECC_HW;
+	case NAND_ECC_HW:
+		ret = marvell_nand_hw_ecc_ctrl_init(mtd, ecc, np);
+		if (ret)
+			return ret;
+		break;
+	case NAND_ECC_NONE:
+	case NAND_ECC_SOFT:
+		nfc->hw_ecc_algo = 0;
+		break;
+	default:
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -846,12 +1165,11 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 	}
 
 
-/*todo	ret = marvell_nand_ecc_init(mtd, &nand->ecc, np);
+	ret = marvell_nand_ecc_init(mtd, &nand->ecc, np);
 	if (ret) {
 		dev_err(dev, "ECC init failed: %d\n", ret);
 		return ret;
 	}
-*/
 
 	ret = nand_scan_tail(mtd);
 	if (ret) {
@@ -903,9 +1221,21 @@ static void marvell_nand_chips_cleanup(struct marvell_nfc *nfc)
 
 	list_for_each_entry_safe(entry, temp, &nfc->chips, node) {
 		nand_release(nand_to_mtd(&entry->nand));
-//todo		marvell_nand_ecc_cleanup(&chip->nand.ecc);
 		list_del(&entry->node);
 	}
+}
+
+static int marvell_nfc_init(struct marvell_nfc *nfc)
+{
+//todo: add 8b/16b width support
+	/* ECC operations shall be disabled during first discovery operations */
+	writel(readl(nfc->regs + NDCR) & ~(NDCR_SPARE_EN | NDCR_ECC_EN),
+	       nfc->regs + NDCR);
+	writel(0, nfc->regs + NDECCCTRL);
+
+//	writel(readl(nfc->regs + NDTR1CS0) & ~(1<<15), nfc->regs + NDTR1CS0);
+
+	return 0;
 }
 
 /*
