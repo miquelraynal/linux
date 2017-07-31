@@ -268,8 +268,6 @@
 
 &nfc {
 	status = "okay";
-	nand-ecc-strength = <4>;
-	nand-ecc-step-size = <512>;
 	marvell,nand-keep-config;
 	marvell,nand-enable-arbiter;
 	nand-on-flash-bbt;
@@ -284,6 +282,8 @@
 //		nand-ecc-mode = "none";
 		nand-ecc-mode = "hw";
 		compatible = "fixed-partitions";
+		nand-ecc-strength = <4>;
+		nand-ecc-step-size = <512>;
 		#address-cells = <1>;
 		#size-cells = <1>;
 
