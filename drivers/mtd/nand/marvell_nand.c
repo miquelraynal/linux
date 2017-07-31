@@ -46,13 +46,16 @@
 #define NDCB2 (0x50) /* Command Buffer2 */
 #define NDCB3 (0x54) /* Command Buffer3 */
 
+#define NDCR_CS1_CMDDM (0x1 << 7)
+#define NDCR_CS0_CMDDM (0x1 << 8)
+#define NDCR_RDYM (0x1 << 11)
+#define NDCR_PG_PER_BLK(x) (((x) & 0x3) << 13)
+#define NDCR_RA_START (0x1 << 15)
+#define NDCR_RD_ID_CNT(x) (((x) & 0x7) << 16)
+#define NDCR_PAGE_SZ(x) (((x) == 2048) ? 0x1 << 24 : 0)
 #define NDCR_ND_RUN (0x1 << 28)
 #define NDCR_ECC_EN (0x1 << 30)
 #define NDCR_SPARE_EN (0x1 << 31)
-
-#define NDSR_WRCMDREQ (0x1 << 0)
-#define NDSR_RDDREQ (0x1 << 1)
-#define NDSR_WRDREQ (0x1 << 2)
 
 /* NDCR and NDSR common fields */
 #define ALL_INT (0xFFF)
@@ -60,25 +63,35 @@
 //#define RDD_REQ_INT (0x1 << 1)
 //#define WRD_REQ_INT (0x1 << 2)
 
-#define NDCR_CS1_CMDDM (0x1 << 7)
-#define NDCR_CS0_CMDDM (0x1 << 8)
-#define NDCR_RDYM (0x1 << 11)
-#define NDCR_RD_ID_CNT(x) (((x) & 0x7) << 16)
 
 #define NDSR_WRCMDREQ (0x1 << 0)
+#define NDSR_RDDREQ (0x1 << 1)
+#define NDSR_WRDREQ (0x1 << 2)
+#define NDSR_CORERR (0x1 << 3)
+#define NDSR_UNCERR (0x1 << 4)
 #define NDSR_CS1_CMDD (0x1 << 7)
 #define NDSR_CS0_CMDD (0x1 << 8)
 #define NDSR_RDY0 (0x1 << 11)
 #define NDSR_RDY1 (0x1 << 12)
+#define NDSR_ERRCNT(x) (((x) >> 16) & 0x1F)
 
+#define NDECCTRL_BCH_EN (0x1 << 0)
+
+#define NDCB0_CMD1(x) (((x) & 0xFF) << 0)
+#define NDCB0_CMD2(x) (((x) & 0xFF) << 8)
 #define NDCB0_ADDR_CYC(x) (((x) & 0x7) << 16)
+#define NDCB0_DBC (0x1 << 19)
 #define NDCB0_CMD_TYPE(x) (((x) & 0x7) << 21)
 #define NDCB0_CSEL (0x1 << 24)
 #define NDCB0_RDY_BYP (0x1 << 27)
 #define NDCB0_LEN_OVRD (0x1 << 28)
 #define NDCB0_CMD_XTYPE(x) (((x) & 0x7) << 29)
 
-#define NDCB2_ADDR5 (0x1 << 0)
+#define NDCB1_COLS(x) (((x) & 0xFFFF) << 0)
+#define NDCB1_ADDRS(x) ((x) << 16)
+
+#define NDCB2_ADDR5(x) ((((x) >> 16) & 0xFF) << 0)
+#define NDCB2_ADDR5_CS (0x1 << 7)
 
 #define TYPE_READ (0)
 #define TYPE_WRITE (1)
@@ -88,11 +101,12 @@
 #define TYPE_NAKED_ADDR (7)
 #define XTYPE_MONOLITHIC_READ (0)
 #define XTYPE_LAST_NAKED_READ (1)
+#define XTYPE_FINAL_COMMAND (3)
+#define XTYPE_READ (4)
 #define XTYPE_NAKED_READ (5)
 #define XTYPE_NAKED_WRITE (5)
-#define XTYPE_COMMAND_DISPATCH (5)
+#define XTYPE_COMMAND_DISPATCH (6)
 
-#define PRINT 13400
 #define show(x) printk(#x ": 0x%08x [%s:%i]\n", readl(nfc->regs + x), __FUNCTION__, __LINE__)
 #define showif(x) {							\
 		if (probed)						\
@@ -546,72 +560,374 @@ static void marvell_nfc_write_buf(struct mtd_info *mtd, const uint8_t *buf,
 	}
 }
 
-static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
-				      struct nand_chip *chip, uint8_t *buf,
-				      int oob_required, int page)
+static void marvell_nfc_hw_ecc_enable(struct mtd_info *mtd)
 {
-//	struct nand_ecc_ctrl *ecc = &chip->ecc;
-	unsigned int max_bitflips = 0;
-/*	int ret, i, cur_off = 0;
-	bool raw_mode = false;
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	u32 ndcr = readl(nfc->regs + NDCR);
 
-	marvell_nfc_hw_ecc_enable(mtd);
+	if (!(ndcr & NDCR_ECC_EN)) {
+		writel(ndcr | NDCR_ECC_EN | NDCR_SPARE_EN, nfc->regs + NDCR);
 
-	for (i = 0; i < ecc->steps; i++) {
-		int data_off = i * ecc->size;
-		int oob_off = i * (ecc->bytes + 4);
-		u8 *data = buf + data_off;
-		u8 *oob = chip->oob_poi + oob_off;
+		/*
+		 * When enabling BCH, set threshold to 0 to always know the
+		 * number of corrected bitflips.
+		 */
+		if (nfc->hw_ecc_algo == NAND_ECC_BCH)
+			writel(NDECCTRL_BCH_EN, nfc->regs + NDECCCTRL);
+	}
+}
 
-		ret = marvell_nfc_hw_ecc_read_chunk(mtd, data, data_off, oob,
-						  oob_off + mtd->writesize,
-						  &cur_off, &max_bitflips,
-						  !i, oob_required, page);
-		if (ret < 0)
-			return ret;
-		else if (ret)
-			raw_mode = true;
+static void marvell_nfc_hw_ecc_disable(struct mtd_info *mtd)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	u32 ndcr = readl(nfc->regs + NDCR);
+
+	if (ndcr & NDCR_ECC_EN) {
+		writel(ndcr & ~(NDCR_ECC_EN | NDCR_SPARE_EN), nfc->regs + NDCR);
+		if (nfc->hw_ecc_algo == NAND_ECC_BCH)
+			writel(0, nfc->regs + NDECCCTRL);
+	}
+}
+
+static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
+					u8 *data, u8 *oob, int oob_required,
+					int page, bool using_hw_bch)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
+//	int read_offset = chunk *
+//		(lt->data_bytes - 32 /*+ lt->spare_bytes + lt->ecc_bytes*/);
+	int data_len, oob_len, read_len, xtype, i = 0;
+//	u32 *dest;
+	//todo attention !
+//	oob_required = true;
+	printk("%s (%d)\n", __FUNCTION__, chunk);
+
+	if (chunk < lt->full_chunk_cnt) {
+		data_len = lt->data_bytes;
+		oob_len = lt->spare_bytes;
+	} else {
+		data_len = lt->last_data_bytes;
+		oob_len = lt->last_spare_bytes;
 	}
 
-	if (oob_required)
-		marvell_nfc_hw_ecc_read_extra_oob(mtd, chip->oob_poi, &cur_off,
-						!raw_mode, page);
+	/*
+	 * Reading spare area is mandatory when using HW ECC or read operation
+	 * will trigger uncorrectable ECC erros
+	 */
+	read_len = data_len + oob_len;
 
-	marvell_nfc_hw_ecc_disable(mtd);
-*/
+	/*
+	 * Trigger the naked read operation only on the last chunk.
+	 * Otherwise, use monolithic read.
+	 */
+	marvell_nfc_prepare_cmd(mtd);
+
+	if ((lt->last_chunk_cnt && (chunk == lt->full_chunk_cnt)) ||
+		(!lt->last_chunk_cnt && (chunk == lt->full_chunk_cnt - 1)))
+		xtype = XTYPE_LAST_NAKED_READ;
+	else
+		xtype = XTYPE_MONOLITHIC_READ;
+
+	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
+		NDCB0_CMD_TYPE(TYPE_READ) |
+		NDCB0_CMD_XTYPE(xtype) |
+		NDCB0_ADDR_CYC(5) |
+		NDCB0_DBC |
+		NDCB0_CMD1(NAND_CMD_READ0) |
+		NDCB0_CMD2(NAND_CMD_READSTART) |
+		NDCB0_LEN_OVRD,
+		nfc->regs + NDCB0);
+	writel(NDCB1_ADDRS(page),
+		nfc->regs + NDCB0);
+	writel(NDCB2_ADDR5(page) |
+		to_nand_sel(marvell_nand)->ndcb2_addr5,
+		nfc->regs + NDCB0);
+	writel(read_len, nfc->regs + NDCB0);
+
+	/*
+	 * According to the datasheet, when reading from NDDB
+	 * with BCH enabled, after each 32 bytes reads, we
+	 * have to make sure that the NDSR.RDDREQ bit is set.
+	 *
+	 * Drain the FIFO 8 32 bits reads at a time, and skip
+	 * the polling on the last read.
+	 *
+	 * Length is a multiple of 32, hence it is a multiple of 8 too.
+	 */
+	data += chunk * lt->data_bytes;
+	for (i = 0; i < data_len; i += 32) {
+		marvell_nfc_end_cmd(mtd, NDSR_RDDREQ,
+				"RDDREQ while draining FIFO (data)");
+		ioread32_rep(nfc->regs + NDDB, data, 8);
+		data += 32;
+	}
+
+//	if (!oob_required)
+//		return;
+
+	oob += chunk * (lt->spare_bytes + lt->ecc_bytes);
+	for (i = 0; i < oob_len; i += 32) {
+		marvell_nfc_end_cmd(mtd, NDSR_RDDREQ,
+				"RDDREQ while draining FIFO (OOB)");
+		ioread32_rep(nfc->regs + NDDB, oob, 8);
+		oob += 32;
+	}
+}
+
+static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	unsigned int bf, max_bitflips = 0;
+	u32 ndsr;
+
+	ndsr = readl(nfc->regs + NDSR);
+	if (ndsr & NDSR_UNCERR) {
+		writel(ndsr, nfc->regs + NDSR);
+
+		mtd->ecc_stats.failed++;
+		max_bitflips = -1;
+	} else if (ndsr & NDSR_CORERR) {
+		writel(ndsr, nfc->regs + NDSR);
+
+		if (nfc->hw_ecc_algo == NAND_ECC_BCH)
+			bf = NDSR_ERRCNT(ndsr);
+		else
+			bf = 1;
+
+		mtd->ecc_stats.corrected += bf;
+		max_bitflips = max_t(unsigned int, max_bitflips, bf);
+	}
+
 	return max_bitflips;
 }
 
-static int marvell_nfc_hw_ecc_write_page(struct mtd_info *mtd,
-				       struct nand_chip *chip,
-				       const uint8_t *buf, int oob_required,
-				       int page)
+static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
+					struct nand_chip *chip, uint8_t *buf,
+					int oob_required, int page)
 {
-/*	struct nand_ecc_ctrl *ecc = &chip->ecc;
-	int ret, i, cur_off = 0;
+	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
+	int nchunks = lt->full_chunk_cnt + lt->last_chunk_cnt;
+	unsigned int max_bitflips = 0;
+	bool using_hw_bch = (nfc->hw_ecc_algo == NAND_ECC_BCH);
+	int chunk;
+
+	// todo: this is to differentiate reading 0xff with reading nothing
+	int j;
+	for (j = 0; j < 224; j++)
+		chip->oob_poi[j] = 0xee;
 
 	marvell_nfc_hw_ecc_enable(mtd);
 
-	for (i = 0; i < ecc->steps; i++) {
-		int data_off = i * ecc->size;
-		int oob_off = i * (ecc->bytes + 4);
-		const u8 *data = buf + data_off;
-		const u8 *oob = chip->oob_poi + oob_off;
+	for (chunk = 0; chunk < nchunks; chunk++) {
+		marvell_nfc_hw_ecc_read_chunk(mtd, chunk, buf, chip->oob_poi,
+					oob_required, page, using_hw_bch);
 
-		ret = marvell_nfc_hw_ecc_write_chunk(mtd, data, data_off, oob,
-						   oob_off + mtd->writesize,
-						   &cur_off, !i, page);
-		if (ret)
-			return ret;
+		max_bitflips = marvell_nfc_hw_ecc_correct(mtd);
 	}
-
-	if (oob_required || (chip->options & NAND_NEED_SCRAMBLING))
-		marvell_nfc_hw_ecc_write_extra_oob(mtd, chip->oob_poi,
-						 &cur_off, page);
 
 	marvell_nfc_hw_ecc_disable(mtd);
 
-*/	return 0;
+	return max_bitflips;
+}
+
+#if 0
+static void marvell_nfc_hw_ecc_read_oob_chunk(struct mtd_info *mtd, int chunk,
+					u8 *oob, int page, bool using_hw_bch)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
+	int read_offset;
+	int read_len;
+	int i, xtype;
+
+	read_len = lt->spare_bytes + lt->ecc_bytes;
+
+	marvell_nfc_prepare_cmd(mtd);
+
+	/*
+	 * Trigger the naked read operation only on the last chunk.
+	 * Otherwise, use monolithic read.
+	 */
+	if ((lt->last_chunk_cnt && (chunk == lt->full_chunk_cnt)) ||
+		(!lt->last_chunk_cnt && (chunk == lt->full_chunk_cnt - 1)))
+		xtype = XTYPE_LAST_NAKED_READ;
+	else
+		xtype = XTYPE_MONOLITHIC_READ;
+
+	read_offset = chunk * lt->data_bytes;
+	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
+		NDCB0_CMD_TYPE(TYPE_READ) |
+		NDCB0_CMD_XTYPE(xtype) |
+		NDCB0_ADDR_CYC(5) |
+		NDCB0_DBC |
+		NDCB0_CMD1(NAND_CMD_READ0) |
+		NDCB0_CMD2(NAND_CMD_READSTART) |
+		NDCB0_LEN_OVRD,
+		nfc->regs + NDCB0);
+	writel(NDCB1_COLS(read_offset) |
+		NDCB1_ADDRS(page),
+		nfc->regs + NDCB0);
+	writel(NDCB2_ADDR5(page) |
+		to_nand_sel(marvell_nand)->ndcb2_addr5,
+		nfc->regs + NDCB0);
+	writel(read_len, nfc->regs + NDCB0);
+
+//	chip->cmdfunc(mtd, NAND_CMD_RNDIN, read_offset, -1);
+
+	for (i = 0; i < read_len; i += 32) {
+		marvell_nfc_end_cmd(mtd, NDSR_RDDREQ,
+				"RDDREQ while draining FIFO (OOB)");
+		ioread32_rep(nfc->regs + NDDB, oob, 8);
+		oob += 32;
+	}
+}
+#endif
+
+static int marvell_nfc_hw_ecc_read_oob(struct mtd_info *mtd, struct nand_chip *chip, int page)
+{
+	int max_bitflips = 0;
+
+	printk("TODO: %s\n", __FUNCTION__);
+
+#if 0
+	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
+	bool using_hw_bch = (nfc->hw_ecc_algo == NAND_ECC_BCH);
+	int nchunks = lt->full_chunk_cnt + lt->last_chunk_cnt;
+	int chunk;
+
+	marvell_nfc_hw_ecc_enable(mtd);
+
+	for (chunk = 0; chunk < nchunks; chunk++) {
+		marvell_nfc_hw_ecc_read_oob_chunk(mtd, chunk, chip->oob_poi,
+					page, using_hw_bch);
+
+		max_bitflips = marvell_nfc_hw_ecc_correct(mtd);
+	}
+
+	marvell_nfc_hw_ecc_disable(mtd);
+#endif
+
+	return max_bitflips;
+}
+
+static void marvell_nfc_hw_ecc_write_chunk(struct mtd_info *mtd, int chunk,
+					const u8 *data, u8 *oob, int oob_required,
+					int page)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
+	int data_len, oob_len, write_len, i;
+
+	printk("%s (%d)\n", __FUNCTION__, chunk);
+
+	if (chunk < lt->full_chunk_cnt) {
+		data_len = lt->data_bytes;
+		oob_len = lt->spare_bytes;// + lt->ecc_bytes;
+	} else {
+		data_len = lt->last_data_bytes;
+		oob_len = lt->last_spare_bytes;// + lt->last_ecc_bytes;
+	}
+
+	write_len = data_len + oob_len;
+
+	/* Once buffer is filled, execute naked write */
+	marvell_nfc_prepare_cmd(mtd);
+
+	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
+		NDCB0_CMD_TYPE(TYPE_WRITE) |
+		NDCB0_CMD_XTYPE(XTYPE_NAKED_WRITE) |
+		NDCB0_LEN_OVRD,
+		nfc->regs + NDCB0);
+	writel(0, nfc->regs + NDCB0);
+	writel(to_nand_sel(marvell_nand)->ndcb2_addr5,
+		nfc->regs + NDCB0);
+	writel(write_len, nfc->regs + NDCB0);
+	printk("writelen %d %x\n", write_len, write_len);
+
+	marvell_nfc_end_cmd(mtd, NDSR_WRDREQ,
+			"WRDREQ while loading FIFO (data)");
+
+	data += chunk * lt->data_bytes;
+	iowrite32_rep(nfc->regs + NDDB, data, data_len / 4);
+
+	oob += chunk * (lt->spare_bytes + lt->ecc_bytes);
+	if (!oob_required)
+		for (i = 0; i < oob_len; i++)
+			oob[i] = 0xff;
+
+	iowrite32_rep(nfc->regs + NDDB, oob, oob_len / 4);
+}
+
+static int marvell_nfc_hw_ecc_write_page(struct mtd_info *mtd,
+					 struct nand_chip *chip,
+					 const uint8_t *buf, int oob_required,
+					 int page)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	struct marvell_hw_ecc_layout *lt = &nfc->layout;
+	int nchunks = lt->full_chunk_cnt + lt->last_chunk_cnt;
+	int chunk;
+
+	printk("%s\n", __FUNCTION__);
+
+	marvell_nfc_hw_ecc_enable(mtd);
+
+	/* Send the command dispatch with SEQIN command */
+	marvell_nfc_prepare_cmd(mtd);
+
+	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
+		NDCB0_CMD_TYPE(TYPE_WRITE) |
+		NDCB0_CMD_XTYPE(XTYPE_COMMAND_DISPATCH) |
+		NDCB0_ADDR_CYC(5) |
+		NDCB0_CMD1(NAND_CMD_SEQIN),
+		nfc->regs + NDCB0);
+	writel(NDCB1_ADDRS(page),
+		nfc->regs + NDCB0);
+	writel(NDCB2_ADDR5(page) |
+		to_nand_sel(marvell_nand)->ndcb2_addr5,
+		nfc->regs + NDCB0);
+	writel(0, nfc->regs + NDCB0);
+
+	marvell_nfc_wait_cmdd(mtd);
+
+	for (chunk = 0; chunk < nchunks; chunk++) {
+		marvell_nfc_hw_ecc_write_chunk(mtd, chunk, buf,
+					       chip->oob_poi,
+					       oob_required, page);
+		marvell_nfc_wait_cmdd(mtd); /* todo wait just pagedone */
+	}
+
+	/* Send the command dispatch with PAGEPROG command */
+	marvell_nfc_prepare_cmd(mtd);
+
+	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
+		NDCB0_CMD_TYPE(TYPE_WRITE) |
+		NDCB0_CMD_XTYPE(XTYPE_COMMAND_DISPATCH) |
+		NDCB0_CMD1(NAND_CMD_PAGEPROG),
+		nfc->regs + NDCB0);
+	writel(0,
+		nfc->regs + NDCB0);
+	writel(to_nand_sel(marvell_nand)->ndcb2_addr5,
+		nfc->regs + NDCB0);
+	writel(0, nfc->regs + NDCB0);
+
+	marvell_nfc_hw_ecc_disable(mtd);
+
+	return 0;
 }
 
 static int marvell_nand_ooblayout_hw_hmg_ecc(struct mtd_info *mtd, int section,
@@ -880,16 +1196,17 @@ static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
 		ecc->strength = 1;
 		break;
 	case NAND_ECC_BCH:
+		printk("choose bch\n");
 		mtd_set_ooblayout(mtd, &marvell_nand_ooblayout_hw_bch_ops);
 		ecc->strength = 16;
 		break;
 	}
 
 	ecc->read_page = marvell_nfc_hw_ecc_read_page;
-//	ecc->read_subpage = sunxi_nfc_hw_ecc_read_subpage;
+//	ecc->read_subpage = marvell_nfc_hw_ecc_read_subpage;
 	ecc->write_page = marvell_nfc_hw_ecc_write_page;
-//	ecc->read_oob = sunxi_nfc_hw_common_ecc_read_oob;
-//	ecc->write_oob = sunxi_nfc_hw_common_ecc_write_oob;
+//	ecc->read_oob = marvell_nfc_hw_ecc_read_oob;
+//	ecc->write_oob = marvell_nfc_hw_common_ecc_write_oob;
 
 	/* TODO: support DMA */
 
@@ -1016,6 +1333,7 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 	struct mtd_info *mtd;
 	struct nand_chip *nand;
 	int nsels, ret, i;
+	u32 ndcr;
 	u32 tmp;
 
 	/* Check there is only one line of CS pins */
@@ -1076,11 +1394,11 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 			break;
 		case 2:
 			chip->sels[i].ndcb0_csel = 0;
-			chip->sels[i].ndcb2_addr5 = NDCB2_ADDR5;
+			chip->sels[i].ndcb2_addr5 = NDCB2_ADDR5_CS;
 			break;
 		case 3:
 			chip->sels[i].ndcb0_csel = NDCB0_CSEL;
-			chip->sels[i].ndcb2_addr5 = NDCB2_ADDR5;
+			chip->sels[i].ndcb2_addr5 = NDCB2_ADDR5_CS;
 			break;
 		}
 
@@ -1138,6 +1456,32 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 //todo		nand->bbt_md = &bbt_mirror_descr;
 	}
 
+	/* Select NFC final configuration now page size/block size are known */
+	ndcr = readl(nfc->regs + NDCR);
+
+	if (mtd->writesize > 512)
+		ndcr |= NDCR_PAGE_SZ(2048);
+
+	switch (mtd->erasesize / mtd->writesize) {
+	case 32:
+		ndcr |= NDCR_PG_PER_BLK(0x0);
+		break;
+	case 64:
+		ndcr |= NDCR_PG_PER_BLK(0x2);
+		break;
+	case 128:
+		ndcr |= NDCR_PG_PER_BLK(0x1);
+		break;
+	case 256:
+		ndcr |= NDCR_PG_PER_BLK(0x3);
+		break;
+	default:
+		dev_err(dev, "Number of page per blocks not supported (%d)\n",
+			(mtd->erasesize / mtd->writesize));
+		return -ERANGE;
+	}
+	printk("pages per block %d\n", mtd->erasesize / mtd->writesize);
+	writel(ndcr,  nfc->regs + NDCR);
 
 	ret = marvell_nand_ecc_init(mtd, &nand->ecc, np);
 	if (ret) {
@@ -1150,6 +1494,9 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 		dev_err(dev, "nand_scan_tail failed: %d\n", ret);
 		return ret;
 	}
+
+	/* todo: change that*/
+	nand->ecc.read_oob = marvell_nfc_hw_ecc_read_oob;
 
 	/* Subpage write not available */
 	nand->options |= NAND_NO_SUBPAGE_WRITE;
@@ -1203,11 +1550,9 @@ static int marvell_nfc_init(struct marvell_nfc *nfc)
 {
 //todo: add 8b/16b width support
 	/* ECC operations shall be disabled during first discovery operations */
-	writel(readl(nfc->regs + NDCR) & ~(NDCR_SPARE_EN | NDCR_ECC_EN),
-	       nfc->regs + NDCR);
+	writel(NDCR_RA_START | 0xFFF, nfc->regs + NDCR);
+	writel(0xFFFFFFFF, nfc->regs + NDSR);
 	writel(0, nfc->regs + NDECCCTRL);
-
-//	writel(readl(nfc->regs + NDTR1CS0) & ~(1<<15), nfc->regs + NDTR1CS0);
 
 	return 0;
 }
