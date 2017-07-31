@@ -227,6 +227,71 @@ static irqreturn_t marvell_nfc_irq(int irq, void *dev_id)
 	return status;
 }
 
+static void marvell_nfc_prepare_cmd(struct mtd_info *mtd)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	u32 ndcr, val;
+	int ret;
+
+	/* Deassert ND_RUN and clear NDSR before issuing any command */
+	ndcr = readl(nfc->regs + NDCR);
+	writel(ndcr & ~NDCR_ND_RUN, nfc->regs + NDCR);
+	writel(readl(nfc->regs + NDSR), nfc->regs + NDSR);
+
+	/* Assert ND_RUN bit and wait the NFC to be ready */
+	writel(ndcr | NDCR_ND_RUN, nfc->regs + NDCR);
+	ret = readl_poll_timeout(nfc->regs + NDSR, val,
+				 val & NDSR_WRCMDREQ, 0, 1000);
+	if (ret) {
+		dev_err(nfc->dev, "Timeout on WRCMDRE\n");
+		return;
+	}
+
+	/* Command may be written, clear WRCMDREQ status bit */
+	writel(NDSR_WRCMDREQ, nfc->regs + NDSR);
+}
+
+static int marvell_nfc_end_cmd(struct mtd_info *mtd, int flag, char *label)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	u32 val;
+	int ret;
+
+	if (flag == NDCR_ND_RUN) {
+		/*
+		 * The command is being processed, wait for the ND_RUN bit to be
+		 * cleared by the NFC. If not, we must clear it by hand.
+		 */
+		ret = readl_poll_timeout(nfc->regs + NDCR, val,
+					 (val & NDCR_ND_RUN) == 0, 0, 1000);
+		if (ret) {
+			dev_err(nfc->dev, "Timeout on %s\n", label);
+			writel(readl(nfc->regs + NDCR) & ~NDCR_ND_RUN,
+			       nfc->regs + NDCR);
+			return ret;
+		}
+	} else {
+		ret = readl_poll_timeout(nfc->regs + NDSR, val,
+					 val & flag, 0, 5000/*todo needed 5000 only for rb signal else1000*/);
+		if (ret) {
+			dev_err(nfc->dev, "Timeout on %s\n", label);
+			showif(NDSR);
+			return ret;
+		}
+
+		/* Clear flag */
+		writel(flag, nfc->regs + NDSR);
+	}
+
+	return 0;
+}
+
+
+
+
+
 /* Send controls to the nand chip */
 static void marvell_nfc_cmd_ctrl(struct mtd_info *mtd, int data,
 				unsigned int ctrl)
@@ -234,8 +299,6 @@ static void marvell_nfc_cmd_ctrl(struct mtd_info *mtd, int data,
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	u32 ndcr, val;
-	int ret;
 
 	if (ctrl & (NAND_CLE | NAND_ALE)) {
 		/*
@@ -244,25 +307,10 @@ static void marvell_nfc_cmd_ctrl(struct mtd_info *mtd, int data,
 		 */
 		nfc->new_cmd = 1;
 
-		/* Deassert ND_RUN and clear NDSR before issuing any command */
-		ndcr = readl(nfc->regs + NDCR);
-		writel(ndcr & ~NDCR_ND_RUN, nfc->regs + NDCR);
-		writel(readl(nfc->regs + NDSR), nfc->regs + NDSR);
-
-		/* Assert ND_RUN bit and wait the NFC to be ready */
-		writel(ndcr | NDCR_ND_RUN, nfc->regs + NDCR);
-		ret = readl_poll_timeout(nfc->regs + NDSR, val,
-					 val & NDSR_WRCMDREQ, 0, 1000);
-		if (ret) {
-			dev_err(nfc->dev, "Timeout on WRCMDRE\n");
-			return;
-		}
-
-		/* Command may be written, clear WRCMDREQ status bit */
-		writel(NDSR_WRCMDREQ, nfc->regs + NDSR);
+		marvell_nfc_prepare_cmd(mtd);
 
 		/*
-		 * Marvell NFC uses naked commands and naked addresses.
+		 * Marvell NFC may use naked commands and naked addresses.
 		 *
 		 * NDCB{1-3} registers are RO while NDCB0 is RW.
 		 * NFC waits for all these three registers to be written
@@ -286,18 +334,7 @@ static void marvell_nfc_cmd_ctrl(struct mtd_info *mtd, int data,
 				nfc->regs + NDCB0);
 		}
 
-		/*
-		 * The command is being processed, wait for the ND_RUN bit to be
-		 * cleared by the NFC. If not, we must clear it by hand.
-		 */
-		ret = readl_poll_timeout(nfc->regs + NDCR, val,
-					 (val & NDCR_ND_RUN) == 0, 0, 1000);
-		if (ret) {
-			dev_err(nfc->dev, "Timeout on ND_RUN\n");
-			writel(readl(nfc->regs + NDCR) & ~NDCR_ND_RUN,
-			       nfc->regs + NDCR);
-			return;
-		}
+		marvell_nfc_end_cmd(mtd, NDCR_ND_RUN, "NAND controller RUN mode");
 	}
 }
 
@@ -321,17 +358,12 @@ static void marvell_nfc_wait_cmdd(struct mtd_info *mtd)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
-	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	int cs_flag, val, ret;
+	int cs_flag;
 
 	cs_flag = to_nand_sel(marvell_nand)->ndcb0_csel ?
 		NDSR_CS1_CMDD : NDSR_CS0_CMDD;
 
-	ret = readl_poll_timeout(nfc->regs + NDSR, val,
-				val & cs_flag, 0, 1000);
-	writel(cs_flag, nfc->regs + NDSR);
-	if (ret)
-		dev_err(nfc->dev, "Timeout while waiting for CMDD\n");
+	marvell_nfc_end_cmd(mtd, cs_flag, "CMDD");
 }
 
 static int marvell_nfc_dev_ready(struct mtd_info *mtd)
@@ -353,29 +385,10 @@ static int marvell_nfc_dev_ready(struct mtd_info *mtd)
 static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
 {
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
-	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	int rdy_flag = to_nand_sel(marvell_nand)->rb ? NDSR_RDY1 : NDSR_RDY0;
-	int val, ret;
 
-//	init_completion(&nfc->rdy);
-
-//	marvell_nfc_enable_int(nfc, NDCR_RDYM);
-//	printk("wait for completion rdy (ndcr %x)\n", readl(nfc->regs+NDCR));
-//	if (!wait_for_completion_timeout(&nfc->rdy, CHIP_DELAY_TIMEOUT)) {
-//		dev_err(nfc->dev, "Timeout on read/write data request\n");
-//		return -ETIMEDOUT;
-//	}
-
-//	marvell_nfc_disable_int(nfc, NDCR_RDYM);
-
-	ret = readl_poll_timeout(nfc->regs + NDSR, val,
-				val & rdy_flag, 0, 5000);
-	if (!ret)
-		writel(rdy_flag, nfc->regs + NDSR);
-	else
-		dev_err(nfc->dev, "Timeout while waiting for RB signal\n");
-
-	return ret;
+//todo: if failure, try timeout on 5000us insteal of 1000
+	return marvell_nfc_end_cmd(mtd, rdy_flag, "RB signal");
 }
 
 static void marvell_nfc_do_naked_read(struct mtd_info *mtd, int len)
@@ -383,25 +396,8 @@ static void marvell_nfc_do_naked_read(struct mtd_info *mtd, int len)
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	u32 ndcr, val;
-	int ret;
 
-	/* Deassert ND_RUN and clear NDSR before issuing any command */
-	ndcr = readl(nfc->regs + NDCR);
-	writel(ndcr & ~NDCR_ND_RUN, nfc->regs + NDCR);
-	writel(readl(nfc->regs + NDSR), nfc->regs + NDSR);
-
-	/* Assert ND_RUN bit and wait the NFC to be ready */
-	writel(ndcr | NDCR_ND_RUN, nfc->regs + NDCR);
-	ret = readl_poll_timeout(nfc->regs + NDSR, val,
-				 val & NDSR_WRCMDREQ, 0, 1000);
-	if (ret) {
-		dev_err(nfc->dev, "Naked read operation: timeout on WRCMDRE\n");
-		return;
-	}
-
-	/* Command may be written, clear WRCMDREQ status bit */
-	writel(NDSR_WRCMDREQ, nfc->regs + NDSR);
+	marvell_nfc_prepare_cmd(mtd);
 
 	/* Trigger the naked read operation */
 	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
@@ -414,15 +410,7 @@ static void marvell_nfc_do_naked_read(struct mtd_info *mtd, int len)
 		nfc->regs + NDCB0);
 	writel(len, nfc->regs + NDCB0);
 
-	ret = readl_poll_timeout(nfc->regs + NDSR, val,
-				val & NDSR_RDDREQ, 0, 1000);
-	if (ret) {
-		dev_err(nfc->dev, "Naked read operation: timeout on RDDREQ\n");
-		return;
-	}
-
-	/* Clear RDDREQ flag */
-	writel(NDSR_RDDREQ, nfc->regs + NDSR);
+	marvell_nfc_end_cmd(mtd, NDSR_RDDREQ, "RDDREQ during naked read");
 }
 
 static void marvell_nfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
@@ -517,25 +505,8 @@ static void marvell_nfc_do_naked_write(struct mtd_info *mtd, int len)
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	u32 ndcr, val;
-	int ret;
 
-	/* Deassert ND_RUN and clear NDSR before issuing any command */
-	ndcr = readl(nfc->regs + NDCR);
-	writel(ndcr & ~NDCR_ND_RUN, nfc->regs + NDCR);
-	writel(readl(nfc->regs + NDSR), nfc->regs + NDSR);
-
-	/* Assert ND_RUN bit and wait the NFC to be ready */
-	writel(ndcr | NDCR_ND_RUN, nfc->regs + NDCR);
-	ret = readl_poll_timeout(nfc->regs + NDSR, val,
-				val & NDSR_WRCMDREQ, 0, 1000);
-	if (ret) {
-		dev_err(nfc->dev, "Naked read operation: timeout on WRCMDRE\n");
-		return;
-	}
-
-	/* Command may be written, clear WRCMDREQ status bit */
-	writel(NDSR_WRCMDREQ, nfc->regs + NDSR);
+	marvell_nfc_prepare_cmd(mtd);
 
 	/* Trigger the naked write operation */
 	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
@@ -548,16 +519,7 @@ static void marvell_nfc_do_naked_write(struct mtd_info *mtd, int len)
 		nfc->regs + NDCB0);
 	writel(len, nfc->regs + NDCB0);
 
-	ret = readl_poll_timeout(nfc->regs + NDSR, val,
-				val & NDSR_WRDREQ, 0, 1000);
-	if (ret) {
-		dev_err(nfc->dev, "Naked read operation: timeout on WRDREQ\n");
-		show(NDSR);
-		return;
-	}
-
-	/* Clear RDDREQ flag */
-	writel(NDSR_WRDREQ, nfc->regs + NDSR);
+	marvell_nfc_end_cmd(mtd, NDSR_WRDREQ, "WRDREQ during naked write");
 }
 
 static void marvell_nfc_write_buf(struct mtd_info *mtd, const uint8_t *buf,
