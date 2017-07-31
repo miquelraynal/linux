@@ -658,19 +658,15 @@ static int marvell_nand_ooblayout_hw_bch_ecc(struct mtd_info *mtd, int section,
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	struct marvell_hw_ecc_layout *lt = &nfc->layout;
 
-	/* ECC position is the same for all full chunks */
-	if (section < lt->full_chunk_cnt) {
-		oobregion->offset = lt->spare_bytes +
-			(section * (lt->spare_bytes + lt->ecc_bytes));
-		oobregion->length = lt->ecc_bytes;
-		/* Enventually last chunk may have a different layout */
-	} else if (section == lt->full_chunk_cnt && lt->last_ecc_bytes) {
-		oobregion->offset = lt->last_spare_bytes +
-			(section * (lt->spare_bytes + lt->ecc_bytes));
-		oobregion->length = lt->last_ecc_bytes;
-	} else {
+//	printk("%s (section %d)\n", __FUNCTION__, section);
+//	dump_stack();
+
+	if (section >= lt->full_chunk_cnt)
 		return -ERANGE;
-	}
+
+	oobregion->offset = lt->spare_bytes +
+		(section * (lt->spare_bytes + lt->ecc_bytes));
+	oobregion->length = lt->ecc_bytes;
 
 	return 0;
 }
@@ -680,28 +676,44 @@ static int marvell_nand_ooblayout_hw_bch_free(struct mtd_info *mtd, int section,
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	struct nand_ecc_ctrl *ecc = &nand->ecc;
 	struct marvell_hw_ecc_layout *lt = &nfc->layout;
 
-	/* Free bytes are at the same position for all full chunks */
-	if (section < lt->full_chunk_cnt) {
-		oobregion->offset = section * (lt->spare_bytes + lt->ecc_bytes);
-		oobregion->length = lt->spare_bytes;
-		/* Enventually last chunk may have a different layout */
-	} else if (section == lt->full_chunk_cnt && lt->last_spare_bytes) {
-		oobregion->offset = section * (lt->spare_bytes + lt->ecc_bytes);
-		oobregion->length = lt->last_spare_bytes;
-	} else {
+//	printk("%s (section %d)\n", __FUNCTION__, section);
+//	dump_stack();
+
+	if (section >= lt->full_chunk_cnt)
 		return -ERANGE;
+
+	if (!lt->spare_bytes) {
+		oobregion->offset = 0;
+		oobregion->length = 0;
+		return 0;
 	}
 
+	oobregion->offset = section * (lt->spare_bytes + lt->ecc_bytes);
+	oobregion->length = lt->spare_bytes;
+
 	/* BBM sometimes are in the OOB data */
-	if (mtd->writesize == 2048 && ecc->strength == 4 && section == 1) {
+/*	if (mtd->writesize == 2048 && ecc->strength == 4 && section == 1) {
 		oobregion->length -= 2;
 	} else if (mtd->writesize == 4096 && ecc->strength == 4 && section == 1) {
 		oobregion->offset += 8;
 		oobregion->length -= 8;
 	}
+*/
+	if (!section) {
+		/*
+		 * Bootrom looks in bytes 0 & 5 for bad blocks for the
+		 * 4KB page / 4bit BCH combination.
+		 */
+/*		if (mtd->writesize == 4096 && lt->data_bytes == 2048) {
+			oobregion->offset += 6;
+			oobregion->length -= 6;
+		} else {
+			oobregion->offset += 2;
+			oobregion->length -= 2;
+		}
+*/	}
 
 	return 0;
 }
@@ -736,7 +748,7 @@ static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
 		nfc->layout.full_chunk_cnt = 1;
 		nfc->layout.data_bytes = 2048;
 		nfc->layout.spare_bytes = 32;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 0;
 		nfc->layout.last_data_bytes = 0;
 		nfc->layout.last_spare_bytes = 0;
@@ -747,113 +759,113 @@ static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
 		nfc->layout.full_chunk_cnt = 1;
 		nfc->layout.data_bytes = 1024;
 		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 1024;
 		nfc->layout.last_spare_bytes = 32;
-		nfc->layout.last_ecc_bytes = 30;
+		nfc->layout.last_ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 2048 && ecc->strength == 12) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 2;
 		nfc->layout.data_bytes = 704;
 		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32;  /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 640;
 		nfc->layout.last_spare_bytes = 0;
-		nfc->layout.last_ecc_bytes = 30;
+		nfc->layout.last_ecc_bytes = 32;  /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 2048 && ecc->strength == 16) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 4;
 		nfc->layout.data_bytes = 512;
 		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 0;
 		nfc->layout.last_spare_bytes = 32;
-		nfc->layout.last_ecc_bytes = 30;
+		nfc->layout.last_ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 4096 && ecc->strength == 4) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 2;
 		nfc->layout.data_bytes = 2048;
 		nfc->layout.spare_bytes = 32;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 4096 && ecc->strength == 8) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 4;
 		nfc->layout.data_bytes = 1024;
 		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 0;
 		nfc->layout.last_spare_bytes = 64;
-		nfc->layout.last_ecc_bytes = 30;
+		nfc->layout.last_ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 4096 && ecc->strength == 12) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 5;
 		nfc->layout.data_bytes = 704;
 		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 576;
 		nfc->layout.last_spare_bytes = 32;
-		nfc->layout.last_ecc_bytes = 30;
+		nfc->layout.last_ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 4096 && ecc->strength == 16) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 8;
 		nfc->layout.data_bytes = 512;
 		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 0;
 		nfc->layout.last_spare_bytes = 32;
-		nfc->layout.last_ecc_bytes = 30;
+		nfc->layout.last_ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 8192 && ecc->strength == 4) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 4;
 		nfc->layout.data_bytes = 2016;
 		nfc->layout.spare_bytes = 32;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 8192 && ecc->strength == 8) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 8;
 		nfc->layout.data_bytes = 1024;
 		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 0;
 		nfc->layout.last_spare_bytes = 160;
-		nfc->layout.last_ecc_bytes = 30;
+		nfc->layout.last_ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 8192 && ecc->strength == 12) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 11;
 		nfc->layout.data_bytes = 704;
 		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 448;
 		nfc->layout.last_spare_bytes = 64;
-		nfc->layout.last_ecc_bytes = 30;
+		nfc->layout.last_ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else if (mtd->writesize == 8192 && ecc->strength == 16) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 16;
 		nfc->layout.data_bytes = 512;
 		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
+		nfc->layout.ecc_bytes = 32; /* 30 + 2 unusable bytes */
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 0;
 		nfc->layout.last_spare_bytes = 32;
-		nfc->layout.last_ecc_bytes = 30;
+		nfc->layout.last_ecc_bytes = 32; /* 30 + 2 unusable bytes */
 
 	} else {
 		dev_err(nfc->dev,
