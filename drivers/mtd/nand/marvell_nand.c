@@ -1339,10 +1339,13 @@ static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
 	}
 
 	ecc->read_page = marvell_nfc_hw_ecc_read_page;
-//	ecc->read_subpage = marvell_nfc_hw_ecc_read_subpage;
+	ecc->read_page_raw = marvell_nfc_hw_ecc_read_page_raw;
 	ecc->write_page = marvell_nfc_hw_ecc_write_page;
-//	ecc->read_oob = marvell_nfc_hw_ecc_read_oob;
-//	ecc->write_oob = marvell_nfc_hw_common_ecc_write_oob;
+	ecc->write_page_raw = marvell_nfc_hw_ecc_write_page_raw;
+//	ecc->read_oob = marvell_nfc_hw_ecc_read_oob; // todo: check why this must be delayed
+	ecc->read_oob_raw = marvell_nfc_hw_ecc_read_oob_raw;
+	ecc->write_oob = marvell_nfc_hw_ecc_write_oob;
+	ecc->write_oob_raw = marvell_nfc_hw_ecc_write_oob_raw;
 
 	/* TODO: support DMA */
 
