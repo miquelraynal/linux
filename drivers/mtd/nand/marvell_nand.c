@@ -433,6 +433,7 @@ static void marvell_nfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	u32 *buf32;
 	int rounded_len, last_step = 0, i = 0, boundary = 0;
+	bool wait_cmdd = false;
 
 	/*
 	 * ->new_cmd flag indicates ->cmd_ctrl() has been triggered and a naked
@@ -464,10 +465,13 @@ static void marvell_nfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 				rounded_len = round_up(len - i, NFC_FIFO_SIZE);
 
 			/* Wait for CMDD signal between operations */
-			if (i)
+			if (wait_cmdd) {
+				wait_cmdd = false;
 				marvell_nfc_wait_cmdd(mtd);
+			}
 
 			marvell_nfc_do_naked_read(mtd, rounded_len);
+			wait_cmdd = true;
 			boundary += rounded_len;
 		}
 
@@ -490,8 +494,10 @@ static void marvell_nfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 		}
 	}
 
-	if (i)
+	if (wait_cmdd) {
+		wait_cmdd = false;
 		marvell_nfc_wait_cmdd(mtd);
+	}
 
 	nfc->buf_pos = last_step;
 }
