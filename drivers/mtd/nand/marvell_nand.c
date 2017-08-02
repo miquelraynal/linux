@@ -547,25 +547,50 @@ static void marvell_nfc_write_buf(struct mtd_info *mtd, const uint8_t *buf,
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	int remaining_bytes = 0, i = 0;
+	int rounded_len, distance, write_length;
+	u8 fifo[NFC_FIFO_SIZE];
 	u32 *buf32;
-	int rounded_len, i = 0, j;
 
 	while (i < len) {
-		rounded_len = min(len - i, NFC_MAX_CHUNK);
-		marvell_nfc_do_naked_write(mtd, rounded_len);
+		distance = len - i;
+		if (distance > NFC_MAX_CHUNK) {
+			rounded_len = NFC_MAX_CHUNK;
+		} else {
+			rounded_len = round_down(distance, NFC_FIFO_SIZE);
+			remaining_bytes = distance - rounded_len;
+			if (remaining_bytes) {
+				memset(fifo, 0xFF, NFC_FIFO_SIZE);
+				memcpy(fifo, &buf[len - remaining_bytes], remaining_bytes);
+			}
+		}
+
+		if (remaining_bytes)
+			write_length = rounded_len + NFC_FIFO_SIZE;
+		else
+			write_length = rounded_len;
+
+		marvell_nfc_do_naked_write(mtd, write_length);
 
 		buf32 = (u32 *)&buf[i];
-		for (j = 0; j < rounded_len; j += NFC_FIFO_SIZE) {
-			writel(buf32[0], nfc->regs + NDDB);
-			writel(buf32[1], nfc->regs + NDDB);
-			buf32 += 2;
-		}
-		i += rounded_len;
+		iowrite32_rep(nfc->regs + NDDB, buf32, rounded_len / 4);
+
+		/*
+		 * If the write operation is not aligned on NFC_FIFO_SIZE (8B),
+		 * write a multiple of NFC_FIFO_SIZE any way (pad with 0xFF)
+		 * but the calling function should then change the column back
+		 * to the unaligned offset !
+		 */
+		if (remaining_bytes)
+			iowrite32_rep(nfc->regs + NDDB, fifo, NFC_FIFO_SIZE / 4);
+
+		i += distance;
 
 		marvell_nfc_wait_cmdd(mtd);
 	}
 }
 
+/* HW ECC related functions */
 static void marvell_nfc_hw_ecc_enable(struct mtd_info *mtd)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
