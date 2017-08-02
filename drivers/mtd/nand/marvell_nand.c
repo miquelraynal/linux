@@ -622,6 +622,35 @@ static void marvell_nfc_hw_ecc_disable(struct mtd_info *mtd)
 	}
 }
 
+static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd)
+{
+	struct nand_chip *nand = mtd_to_nand(mtd);
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	unsigned int bf, max_bitflips = 0;
+	u32 ndsr;
+
+	ndsr = readl(nfc->regs + NDSR);
+	if (ndsr & NDSR_UNCERR) {
+		writel(ndsr, nfc->regs + NDSR);
+
+		mtd->ecc_stats.failed++;
+		max_bitflips = -1;
+	} else if (ndsr & NDSR_CORERR) {
+		writel(ndsr, nfc->regs + NDSR);
+
+		if (nfc->hw_ecc_algo == NAND_ECC_BCH)
+			bf = NDSR_ERRCNT(ndsr);
+		else
+			bf = 1;
+
+		mtd->ecc_stats.corrected += bf;
+		max_bitflips = max_t(unsigned int, max_bitflips, bf);
+	}
+
+	return max_bitflips;
+}
+
+/* Reads with HW ECC */
 static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
 					u8 *data, u8 *oob, int oob_required,
 					int page, bool using_hw_bch)
@@ -708,34 +737,6 @@ static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
 		ioread32_rep(nfc->regs + NDDB, oob, 8);
 		oob += 32;
 	}
-}
-
-static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd)
-{
-	struct nand_chip *nand = mtd_to_nand(mtd);
-	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	unsigned int bf, max_bitflips = 0;
-	u32 ndsr;
-
-	ndsr = readl(nfc->regs + NDSR);
-	if (ndsr & NDSR_UNCERR) {
-		writel(ndsr, nfc->regs + NDSR);
-
-		mtd->ecc_stats.failed++;
-		max_bitflips = -1;
-	} else if (ndsr & NDSR_CORERR) {
-		writel(ndsr, nfc->regs + NDSR);
-
-		if (nfc->hw_ecc_algo == NAND_ECC_BCH)
-			bf = NDSR_ERRCNT(ndsr);
-		else
-			bf = 1;
-
-		mtd->ecc_stats.corrected += bf;
-		max_bitflips = max_t(unsigned int, max_bitflips, bf);
-	}
-
-	return max_bitflips;
 }
 
 static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
