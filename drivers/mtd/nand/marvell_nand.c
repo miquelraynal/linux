@@ -1359,10 +1359,11 @@ static int marvell_nand_ecc_init(struct mtd_info *mtd, struct nand_ecc_ctrl *ecc
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	int ret;
 
-	if (!ecc->size) {
+	if (!ecc->size)
 		ecc->size = nand->ecc_step_ds;
+
+	if (!ecc->strength)
 		ecc->strength = nand->ecc_strength_ds;
-	}
 
 	if (!ecc->size || !ecc->strength)
 		return -EINVAL;
