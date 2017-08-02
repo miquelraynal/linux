@@ -652,20 +652,16 @@ static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd)
 
 /* Reads with HW ECC */
 static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
-					u8 *data, u8 *oob, int oob_required,
-					int page, bool using_hw_bch)
+					  u8 *data, u8 *oob_poi, int oob_required,
+					  int page, bool using_hw_bch)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	struct marvell_hw_ecc_layout *lt = &nfc->layout;
-//	int read_offset = chunk *
-//		(lt->data_bytes - 32 /*+ lt->spare_bytes + lt->ecc_bytes*/);
 	int data_len, oob_len, read_len, xtype, i = 0;
-//	u32 *dest;
-	//todo attention !
-//	oob_required = true;
-	printk("%s (%d)\n", __FUNCTION__, chunk);
+	u8 dummy_oob[mtd->oobsize];
+	u8 *oob;
 
 	if (chunk < lt->full_chunk_cnt) {
 		data_len = lt->data_bytes;
@@ -677,9 +673,14 @@ static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
 
 	/*
 	 * Reading spare area is mandatory when using HW ECC or read operation
-	 * will trigger uncorrectable ECC erros
+	 * will trigger uncorrectable ECC errors, but do not read ECC here.
 	 */
 	read_len = data_len + oob_len;
+
+	if (oob_required)
+		oob = oob_poi;
+	else
+		oob = dummy_oob;
 
 	/*
 	 * Trigger the naked read operation only on the last chunk.
@@ -688,25 +689,25 @@ static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
 	marvell_nfc_prepare_cmd(mtd);
 
 	if ((lt->last_chunk_cnt && (chunk == lt->full_chunk_cnt)) ||
-		(!lt->last_chunk_cnt && (chunk == lt->full_chunk_cnt - 1)))
+	    (!lt->last_chunk_cnt && (chunk == lt->full_chunk_cnt - 1)))
 		xtype = XTYPE_LAST_NAKED_READ;
 	else
 		xtype = XTYPE_MONOLITHIC_READ;
 
 	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
-		NDCB0_CMD_TYPE(TYPE_READ) |
-		NDCB0_CMD_XTYPE(xtype) |
-		NDCB0_ADDR_CYC(5) |
-		NDCB0_DBC |
-		NDCB0_CMD1(NAND_CMD_READ0) |
-		NDCB0_CMD2(NAND_CMD_READSTART) |
-		NDCB0_LEN_OVRD,
-		nfc->regs + NDCB0);
+	       NDCB0_CMD_TYPE(TYPE_READ) |
+	       NDCB0_CMD_XTYPE(xtype) |
+	       NDCB0_ADDR_CYC(5) |
+	       NDCB0_DBC |
+	       NDCB0_CMD1(NAND_CMD_READ0) |
+	       NDCB0_CMD2(NAND_CMD_READSTART) |
+	       NDCB0_LEN_OVRD,
+	       nfc->regs + NDCB0);
 	writel(NDCB1_ADDRS(page),
-		nfc->regs + NDCB0);
+	       nfc->regs + NDCB0);
 	writel(NDCB2_ADDR5(page) |
-		to_nand_sel(marvell_nand)->ndcb2_addr5,
-		nfc->regs + NDCB0);
+	       to_nand_sel(marvell_nand)->ndcb2_addr5,
+	       nfc->regs + NDCB0);
 	writel(read_len, nfc->regs + NDCB0);
 
 	/*
@@ -718,22 +719,20 @@ static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
 	 * the polling on the last read.
 	 *
 	 * Length is a multiple of 32, hence it is a multiple of 8 too.
+	 *
 	 */
 	data += chunk * lt->data_bytes;
 	for (i = 0; i < data_len; i += 32) {
 		marvell_nfc_end_cmd(mtd, NDSR_RDDREQ,
-				"RDDREQ while draining FIFO (data)");
+				    "RDDREQ while draining FIFO (data)");
 		ioread32_rep(nfc->regs + NDDB, data, 8);
 		data += 32;
 	}
 
-//	if (!oob_required)
-//		return;
-
-	oob += chunk * (lt->spare_bytes + lt->ecc_bytes);
+	oob += chunk * (lt->spare_bytes + lt->ecc_bytes + 2);
 	for (i = 0; i < oob_len; i += 32) {
 		marvell_nfc_end_cmd(mtd, NDSR_RDDREQ,
-				"RDDREQ while draining FIFO (OOB)");
+				    "RDDREQ while draining FIFO (OOB)");
 		ioread32_rep(nfc->regs + NDDB, oob, 8);
 		oob += 32;
 	}
@@ -746,14 +745,14 @@ static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
 	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
 	struct marvell_hw_ecc_layout *lt = &nfc->layout;
 	int nchunks = lt->full_chunk_cnt + lt->last_chunk_cnt;
+	int oob_size = lt->spare_bytes + lt->ecc_bytes;
+	int chunk_size = lt->data_bytes + oob_size;
 	unsigned int max_bitflips = 0;
 	bool using_hw_bch = (nfc->hw_ecc_algo == NAND_ECC_BCH);
 	int chunk;
 
-	// todo: this is to differentiate reading 0xff with reading nothing
-	int j;
-	for (j = 0; j < 224; j++)
-		chip->oob_poi[j] = 0xee;
+	if (oob_required)
+		memset(chip->oob_poi, 0xFF, mtd->oobsize);
 
 	marvell_nfc_hw_ecc_enable(mtd);
 
@@ -766,6 +765,20 @@ static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
 
 	marvell_nfc_hw_ecc_disable(mtd);
 
+	if (!oob_required)
+		goto out;
+
+	/* Read ECC bytes without ECC enabled */
+	chip->cmdfunc(mtd, NAND_CMD_READ0, 0, page);
+	for (chunk = 0; chunk < lt->full_chunk_cnt; chunk++) {
+		chip->cmdfunc(mtd, NAND_CMD_RNDOUT,
+			      ((chunk + 1) * (chunk_size)) - lt->ecc_bytes, -1);
+		marvell_nfc_read_buf(mtd, chip->oob_poi +
+				     ((chunk + 1) * (oob_size + 2) - (lt->ecc_bytes + 2)),
+				     lt->ecc_bytes);
+	}
+
+out:
 	return max_bitflips;
 }
 
