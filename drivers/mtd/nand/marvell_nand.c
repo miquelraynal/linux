@@ -867,33 +867,31 @@ static void marvell_nfc_hw_ecc_write_chunk(struct mtd_info *mtd, int chunk,
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	struct marvell_hw_ecc_layout *lt = &nfc->layout;
-	int data_len, oob_len, write_len, i;
+	int data_len, oob_len, write_len;
 
-	printk("%s (%d)\n", __FUNCTION__, chunk);
-
+	/* OOB area to write is only spare area when using HW ECC */
 	if (chunk < lt->full_chunk_cnt) {
 		data_len = lt->data_bytes;
-		oob_len = lt->spare_bytes;// + lt->ecc_bytes;
+		oob_len = lt->spare_bytes;
 	} else {
 		data_len = lt->last_data_bytes;
-		oob_len = lt->last_spare_bytes;// + lt->last_ecc_bytes;
+		oob_len = lt->last_spare_bytes;
 	}
 
 	write_len = data_len + oob_len;
 
-	/* Once buffer is filled, execute naked write */
+	/* Execute naked write command then fill in the buffer */
 	marvell_nfc_prepare_cmd(mtd);
 
 	writel(to_nand_sel(marvell_nand)->ndcb0_csel |
-		NDCB0_CMD_TYPE(TYPE_WRITE) |
-		NDCB0_CMD_XTYPE(XTYPE_NAKED_WRITE) |
-		NDCB0_LEN_OVRD,
-		nfc->regs + NDCB0);
+	       NDCB0_CMD_TYPE(TYPE_WRITE) |
+	       NDCB0_CMD_XTYPE(XTYPE_NAKED_WRITE) |
+	       NDCB0_LEN_OVRD,
+	       nfc->regs + NDCB0);
 	writel(0, nfc->regs + NDCB0);
 	writel(to_nand_sel(marvell_nand)->ndcb2_addr5,
-		nfc->regs + NDCB0);
+	       nfc->regs + NDCB0);
 	writel(write_len, nfc->regs + NDCB0);
-	printk("writelen %d %x\n", write_len, write_len);
 
 	marvell_nfc_end_cmd(mtd, NDSR_WRDREQ,
 			"WRDREQ while loading FIFO (data)");
@@ -901,11 +899,10 @@ static void marvell_nfc_hw_ecc_write_chunk(struct mtd_info *mtd, int chunk,
 	data += chunk * lt->data_bytes;
 	iowrite32_rep(nfc->regs + NDDB, data, data_len / 4);
 
-	oob += chunk * (lt->spare_bytes + lt->ecc_bytes);
-	if (!oob_required)
-		for (i = 0; i < oob_len; i++)
-			oob[i] = 0xff;
-
+	/* Pad user data with 2 bytes when using BCH (30B) */
+	oob += chunk * (lt->spare_bytes + lt->ecc_bytes + 2);
+//todo: this is the right way to do, but previous driver do it this way:
+//	oob += chunk * lt->spare_bytes;
 	iowrite32_rep(nfc->regs + NDDB, oob, oob_len / 4);
 }
 
@@ -921,7 +918,8 @@ static int marvell_nfc_hw_ecc_write_page(struct mtd_info *mtd,
 	int nchunks = lt->full_chunk_cnt + lt->last_chunk_cnt;
 	int chunk;
 
-	printk("%s\n", __FUNCTION__);
+	if (!oob_required)
+		memset(chip->oob_poi, 0xFF, mtd->oobsize);
 
 	marvell_nfc_hw_ecc_enable(mtd);
 
@@ -947,7 +945,14 @@ static int marvell_nfc_hw_ecc_write_page(struct mtd_info *mtd,
 		marvell_nfc_hw_ecc_write_chunk(mtd, chunk, buf,
 					       chip->oob_poi,
 					       oob_required, page);
-		marvell_nfc_wait_cmdd(mtd); /* todo wait just pagedone */
+		/*
+		 * Waiting only for CMDD or PAGED is not enough, ECC are
+		 * partially written. No flag is set once the operation is
+		 * really finished but the ND_RUN bit is cleared, so wait for it
+		 * before stepping into the next command.
+		 */
+		marvell_nfc_end_cmd(mtd, NDCR_ND_RUN,
+				    "NAND controller RUN mode at page write");
 	}
 
 	/* Send the command dispatch with PAGEPROG command */
@@ -965,6 +970,8 @@ static int marvell_nfc_hw_ecc_write_page(struct mtd_info *mtd,
 	writel(0, nfc->regs + NDCB0);
 
 	marvell_nfc_hw_ecc_disable(mtd);
+
+	marvell_nfc_wait_cmdd(mtd);
 
 	return 0;
 }
