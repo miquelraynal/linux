@@ -1332,7 +1332,6 @@ static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
 		ecc->strength = 1;
 		break;
 	case NAND_ECC_BCH:
-		printk("choose bch\n");
 		mtd_set_ooblayout(mtd, &marvell_nand_ooblayout_hw_bch_ops);
 		ecc->strength = 16;
 		break;
