@@ -23,6 +23,7 @@
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
+#include <linux/syscore_ops.h>
 
 #include "../pinctrl-utils.h"
 
@@ -80,7 +81,22 @@ struct armada_37xx_pmx_func {
 	unsigned int		ngroups;
 };
 
+#if defined(CONFIG_PM)
+struct armada_37xx_pm_state {
+	u32 out_en_l;
+	u32 out_en_h;
+	u32 out_val_l;
+	u32 out_val_h;
+	u32 irq_en_l;
+	u32 irq_en_h;
+	u32 irq_pol_l;
+	u32 irq_pol_h;
+	u32 selection;
+};
+#endif /* CONFIG_PM */
+
 struct armada_37xx_pinctrl {
+	struct list_head		node;
 	struct regmap			*regmap;
 	void __iomem			*base;
 	const struct armada_37xx_pin_data	*data;
@@ -94,6 +110,9 @@ struct armada_37xx_pinctrl {
 	unsigned int			ngroups;
 	struct armada_37xx_pmx_func	*funcs;
 	unsigned int			nfuncs;
+#if defined(CONFIG_PM)
+	struct armada_37xx_pm_state	pm;
+#endif /* CONFIG_PM */
 };
 
 #define PIN_GRP(_name, _start, _nr, _mask, _func1, _func2)	\
@@ -148,6 +167,9 @@ struct armada_37xx_pinctrl {
 		.extra_npins = _nr2,			\
 		.funcs = {_f1, _f2}			\
 	}
+
+/* Global list of devices (struct armada_37xx_pinctrl) */
+static LIST_HEAD(device_list);
 
 static struct armada_37xx_pin_group armada_37xx_nb_groups[] = {
 	PIN_GRP_GPIO("jtag", 20, 5, BIT(0), "jtag"),
@@ -1049,6 +1071,9 @@ static int __init armada_37xx_pinctrl_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, info);
 
+	/* Add to the global list */
+	list_add_tail(&info->node, &device_list);
+
 	return 0;
 }
 
@@ -1058,6 +1083,118 @@ static struct platform_driver armada_37xx_pinctrl_driver = {
 		.of_match_table = armada_37xx_pinctrl_of_match,
 	},
 };
+
+#if defined(CONFIG_PM)
+static int armada_3700_pinctrl_suspend(void)
+{
+	struct armada_37xx_pinctrl *info;
+
+	list_for_each_entry(info, &device_list, node) {
+		/* Save GPIO state */
+		regmap_read(info->regmap, OUTPUT_EN, &info->pm.out_en_l);
+		regmap_read(info->regmap, OUTPUT_EN + sizeof(u32),
+			    &info->pm.out_en_h);
+		regmap_read(info->regmap, OUTPUT_VAL, &info->pm.out_val_l);
+		regmap_read(info->regmap, OUTPUT_VAL + sizeof(u32),
+			    &info->pm.out_val_h);
+
+		info->pm.irq_en_l = readl(info->base + IRQ_EN);
+		info->pm.irq_en_h = readl(info->base + IRQ_EN + sizeof(u32));
+		info->pm.irq_pol_l = readl(info->base + IRQ_POL);
+		info->pm.irq_pol_h = readl(info->base + IRQ_POL + sizeof(u32));
+
+		/* Save pinctrl state */
+		regmap_read(info->regmap, SELECTION, &info->pm.selection);
+	}
+
+	return 0;
+}
+
+static void armada_3700_pinctrl_resume(void)
+{
+	struct armada_37xx_pinctrl *info;
+	struct gpio_chip *gc;
+	struct irq_domain *d;
+	int i;
+
+	list_for_each_entry(info, &device_list, node) {
+		/* Restore GPIO state */
+		regmap_write(info->regmap, OUTPUT_EN, info->pm.out_en_l);
+		regmap_write(info->regmap, OUTPUT_EN + sizeof(u32),
+			     info->pm.out_en_h);
+		regmap_write(info->regmap, OUTPUT_VAL, info->pm.out_val_l);
+		regmap_write(info->regmap, OUTPUT_VAL + sizeof(u32),
+			     info->pm.out_val_h);
+
+		/*
+		 * Input levels may change during suspend, which is not
+		 * monitored at that time. GPIOs used for both-edge IRQs may not
+		 * be synchronized anymore with their polarities (rising/falling
+		 * edge) and must be re-configured manually.
+		 */
+		gc = &info->gpio_chip;
+		d = gc->irq.domain;
+		for (i = 0; i < gc->ngpio; i++) {
+			u32 irq_bit = BIT(i % GPIO_PER_REG);
+			u32 mask, *irq_pol, input_reg, virq, type, level;
+
+			if (i < GPIO_PER_REG) {
+				mask = info->pm.irq_en_l;
+				irq_pol = &info->pm.irq_pol_l;
+				input_reg = INPUT_VAL;
+			} else {
+				mask = info->pm.irq_en_h;
+				irq_pol = &info->pm.irq_pol_h;
+				input_reg = INPUT_VAL + sizeof(u32);
+			}
+
+			if (!(mask & irq_bit))
+				continue;
+
+			virq = irq_find_mapping(d, i);
+			type = irq_get_trigger_type(virq);
+
+			/*
+			 * Synchronize level and polarity for both-edge irqs:
+			 *     - a high input level expects a falling edge,
+			 *     - a low input level exepects a rising edge.
+			 */
+			if ((type & IRQ_TYPE_SENSE_MASK) ==
+			    IRQ_TYPE_EDGE_BOTH) {
+				regmap_read(info->regmap, input_reg, &level);
+				if ((*irq_pol ^ level) & irq_bit)
+					*irq_pol ^= irq_bit;
+			}
+		}
+
+		writel(info->pm.irq_en_l, info->base + IRQ_EN);
+		writel(info->pm.irq_en_h, info->base + IRQ_EN + sizeof(u32));
+		writel(info->pm.irq_pol_l, info->base + IRQ_POL);
+		writel(info->pm.irq_pol_h, info->base + IRQ_POL + sizeof(u32));
+
+		/* Restore pinctrl state */
+		regmap_write(info->regmap, SELECTION, info->pm.selection);
+	}
+}
+
+static struct syscore_ops armada_3700_pinctrl_syscore_ops = {
+	.suspend = armada_3700_pinctrl_suspend,
+	.resume = armada_3700_pinctrl_resume,
+};
+
+static int __init armada_3700_pinctrl_pm_init(void)
+{
+	/*
+	 * Register syscore ops for save/restore of registers across suspend.
+	 * It's important to ensure that this driver is running at an earlier
+	 * initcall level than any arch-specific init calls.
+	 */
+	register_syscore_ops(&armada_3700_pinctrl_syscore_ops);
+	return 0;
+}
+
+postcore_initcall(armada_3700_pinctrl_pm_init);
+#endif /* CONFIG_PM */
 
 builtin_platform_driver_probe(armada_37xx_pinctrl_driver,
 			      armada_37xx_pinctrl_probe);
