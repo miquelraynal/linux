@@ -1254,6 +1254,29 @@ static int marvell_nand_ecc_init(struct mtd_info *mtd, struct nand_ecc_ctrl *ecc
 	return 0;
 }
 
+static u8 bbt_pattern[] = {'M', 'V', 'B', 'b', 't', '0' };
+static u8 bbt_mirror_pattern[] = {'1', 't', 'b', 'B', 'V', 'M' };
+
+static struct nand_bbt_descr bbt_main_descr = {
+	.options = NAND_BBT_LASTBLOCK | NAND_BBT_CREATE | NAND_BBT_WRITE
+	| NAND_BBT_2BIT | NAND_BBT_VERSION,
+	.offs =	8,
+	.len = 6,
+	.veroffs = 14,
+	.maxblocks = 8,	/* Last 8 blocks in each chip */
+	.pattern = bbt_pattern
+};
+
+static struct nand_bbt_descr bbt_mirror_descr = {
+	.options = NAND_BBT_LASTBLOCK | NAND_BBT_CREATE | NAND_BBT_WRITE
+	| NAND_BBT_2BIT | NAND_BBT_VERSION,
+	.offs =	8,
+	.len = 6,
+	.veroffs = 14,
+	.maxblocks = 8,	/* Last 8 blocks in each chip */
+	.pattern = bbt_mirror_pattern
+};
+
 /////////////////: todo adapt OUT OF REWORK START
 //#define NDTR0_tCH(c)	(min((c), 7) << 19)
 //#define NDTR0_tCS(c)	(min((c), 7) << 16)
@@ -1459,8 +1482,8 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 		 * allow writing the bad block marker to the flash.
 		 */
 		nand->bbt_options |= NAND_BBT_NO_OOB_BBM;
-//todo		nand->bbt_td = &bbt_main_descr;
-//todo		nand->bbt_md = &bbt_mirror_descr;
+		nand->bbt_td = &bbt_main_descr;
+		nand->bbt_md = &bbt_mirror_descr;
 	}
 
 	/* Select NFC final configuration, now that the topology,
