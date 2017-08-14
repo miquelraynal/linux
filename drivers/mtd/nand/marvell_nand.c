@@ -1534,9 +1534,6 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 		return ret;
 	}
 
-	/* todo: change that*/
-	nand->ecc.read_oob = marvell_nfc_hw_ecc_read_oob;
-
 	/* Subpage write not available */
 	nand->options |= NAND_NO_SUBPAGE_WRITE;
 
