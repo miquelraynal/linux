@@ -46,6 +46,7 @@
 #define NDCB2 (0x50) /* Command Buffer2 */
 #define NDCB3 (0x54) /* Command Buffer3 */
 
+#define NDCR_ALL_INT (0xFFF)
 #define NDCR_CS1_CMDDM (0x1 << 7)
 #define NDCR_CS0_CMDDM (0x1 << 8)
 #define NDCR_RDYM (0x1 << 11)
@@ -56,13 +57,6 @@
 #define NDCR_ND_RUN (0x1 << 28)
 #define NDCR_ECC_EN (0x1 << 30)
 #define NDCR_SPARE_EN (0x1 << 31)
-
-/* NDCR and NDSR common fields */
-#define ALL_INT (0xFFF)
-//#define CMD_REQ_INT (0x1 << 0)
-//#define RDD_REQ_INT (0x1 << 1)
-//#define WRD_REQ_INT (0x1 << 2)
-
 
 #define NDSR_WRCMDREQ (0x1 << 0)
 #define NDSR_RDDREQ (0x1 << 1)
@@ -160,7 +154,7 @@ struct marvell_nfc {
 	struct device *dev;
 	void __iomem *regs;
 	struct clk *nd_clk;
-	struct completion cmdd, rdy;
+	struct completion rdy;
 	unsigned long assigned_cs;
 	struct list_head chips;
 
@@ -194,7 +188,6 @@ static void marvell_nfc_disable_int(struct marvell_nfc *nfc, u32 int_mask)
 	writel(readl(nfc->regs + NDSR), nfc->regs + NDSR);
 }
 
-#if 0
 static void marvell_nfc_enable_int(struct marvell_nfc *nfc, u32 int_mask)
 {
 	u32 reg;
@@ -205,40 +198,6 @@ static void marvell_nfc_enable_int(struct marvell_nfc *nfc, u32 int_mask)
 	/* Writing 0 enables the interrupt */
 	reg = readl(nfc->regs + NDCR);
 	writel(reg & ~int_mask, nfc->regs + NDCR);
-}
-#endif
-
-static irqreturn_t marvell_nfc_irq(int irq, void *dev_id)
-{
-	struct marvell_nfc *nfc = dev_id;
-	u32 reg, ndsr = 0;
-	irqreturn_t status = IRQ_NONE;
-
-	reg = readl(nfc->regs + NDSR);
-	ndsr = reg;
-	printk("irq (reg %x)\n", reg);
-
-	/* Check command status */
-	if (reg & (NDSR_CS0_CMDD | NDSR_CS1_CMDD)) {
-		printk("irq cmd\n");
-		complete(&nfc->cmdd);
-		ndsr |= NDSR_CS0_CMDD | NDSR_CS1_CMDD;
-		status = IRQ_HANDLED;
-	}
-
-	/* Check read/write data status */
-	if (reg & (NDSR_RDY0 | NDSR_RDY1)) {
-		printk("irq rdy\n");
-		complete(&nfc->rdy);
-		ndsr |= NDSR_RDY0 | NDSR_RDY1;
-		status = IRQ_HANDLED;
-	}
-
-	/* Clear interrupts */
-	writel(ndsr, nfc->regs + NDSR);
-	printk("IRQ handled %d (NDSR %x)\n", status == IRQ_HANDLED, reg);
-
-	return status;
 }
 
 static void marvell_nfc_prepare_cmd(struct mtd_info *mtd)
@@ -394,11 +353,47 @@ static int marvell_nfc_dev_ready(struct mtd_info *mtd)
 
 static int marvell_nfc_waitfunc(struct mtd_info *mtd, struct nand_chip *nand)
 {
-	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
-	int rdy_flag = to_nand_sel(marvell_nand)->rb ? NDSR_RDY1 : NDSR_RDY0;
+	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
+	int ret;
 
-//todo: if failure, try timeout on 5000us insteal of 1000
-	return marvell_nfc_end_cmd(mtd, rdy_flag, "RB signal");
+	init_completion(&nfc->rdy);
+
+	marvell_nfc_enable_int(nfc, NDCR_RDYM);
+	ret = wait_for_completion_timeout(&nfc->rdy,
+					  msecs_to_jiffies(5));
+	marvell_nfc_disable_int(nfc, NDCR_RDYM);
+	if (!ret) {
+		dev_err(nfc->dev, "Timeout waiting for RB signal\n");
+		ret = -ETIMEDOUT;
+	} else {
+		ret = 0;
+	}
+
+	return ret;
+}
+
+/* IRQ are only used for long wait periods like RDY/BSY transitions */
+static irqreturn_t marvell_nfc_isr(int irq, void *dev_id)
+{
+	struct marvell_nfc *nfc = dev_id;
+	struct nand_chip *nand = nfc->controller.active;
+	struct mtd_info *mtd = nand_to_mtd(nand);
+	irqreturn_t status = IRQ_NONE;
+//	u32 reg, ndsr = 0;
+
+	//ndsr = readl(nfc->regs + NDSR);
+	//printk("irq (ndsr %x)\n", ndsr);
+
+	if (marvell_nfc_dev_ready(mtd)) {
+		complete(&nfc->rdy);
+		status = IRQ_HANDLED;
+	}
+
+	/* Clear interrupts */
+//	writel(ndsr, nfc->regs + NDSR);
+//	printk("IRQ handled %d (NDSR %x)\n", status == IRQ_HANDLED, reg);
+
+	return status;
 }
 
 static void marvell_nfc_do_naked_read(struct mtd_info *mtd, int len)
@@ -1706,9 +1701,8 @@ static void marvell_nand_chips_cleanup(struct marvell_nfc *nfc)
 
 static int marvell_nfc_init(struct marvell_nfc *nfc)
 {
-//todo: add 8b/16b width support
-	/* ECC operations shall be disabled during first discovery operations */
-	writel(NDCR_RA_START | 0xFFF, nfc->regs + NDCR);
+	/* ECC operations and interruptions are only enabled when specifically needed. ECC shall not be activated in the early stages (fails probe) */
+	writel(NDCR_RA_START | NDCR_ALL_INT, nfc->regs + NDCR);
 	writel(0xFFFFFFFF, nfc->regs + NDSR);
 	writel(0, nfc->regs + NDECCCTRL);
 
@@ -1756,8 +1750,8 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	marvell_nfc_disable_int(nfc, ALL_INT);
-	ret = devm_request_irq(dev, irq, marvell_nfc_irq,
+	marvell_nfc_disable_int(nfc, NDCR_ALL_INT);
+	ret = devm_request_irq(dev, irq, marvell_nfc_isr,
 			0, "marvell-nfc", nfc);
 	if (ret)
 		goto out_clk_unprepare;
