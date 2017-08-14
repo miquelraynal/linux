@@ -1192,25 +1192,25 @@ static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
 		return -ENODEV;
 	}
 
+	mtd_set_ooblayout(mtd, &marvell_nand_ooblayout_ops);
+
 	switch (nfc->hw_ecc_algo) {
 	case NAND_ECC_HAMMING:
-		mtd_set_ooblayout(mtd, &marvell_nand_ooblayout_hw_hmg_ops);
 		ecc->strength = 1;
 		break;
 	case NAND_ECC_BCH:
-		mtd_set_ooblayout(mtd, &marvell_nand_ooblayout_hw_bch_ops);
+		ecc->read_page = marvell_nfc_hw_ecc_read_page;
+		ecc->read_page_raw = marvell_nfc_hw_ecc_read_page_raw;
+		ecc->write_page = marvell_nfc_hw_ecc_write_page;
+		ecc->write_page_raw = marvell_nfc_hw_ecc_write_page_raw;
+		ecc->read_oob = marvell_nfc_hw_ecc_read_oob;
+		ecc->read_oob_raw = marvell_nfc_hw_ecc_read_oob_raw;
+		ecc->write_oob = marvell_nfc_hw_ecc_write_oob;
+		ecc->write_oob_raw = marvell_nfc_hw_ecc_write_oob_raw;
+		ecc->size = nfc->layout.data_bytes;
 		ecc->strength = 16;
 		break;
 	}
-
-	ecc->read_page = marvell_nfc_hw_ecc_read_page;
-	ecc->read_page_raw = marvell_nfc_hw_ecc_read_page_raw;
-	ecc->write_page = marvell_nfc_hw_ecc_write_page;
-	ecc->write_page_raw = marvell_nfc_hw_ecc_write_page_raw;
-//	ecc->read_oob = marvell_nfc_hw_ecc_read_oob; // todo: check why this must be delayed
-	ecc->read_oob_raw = marvell_nfc_hw_ecc_read_oob_raw;
-	ecc->write_oob = marvell_nfc_hw_ecc_write_oob;
-	ecc->write_oob_raw = marvell_nfc_hw_ecc_write_oob_raw;
 
 	/* TODO: support DMA */
 
