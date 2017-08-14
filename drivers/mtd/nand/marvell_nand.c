@@ -34,6 +34,9 @@
 #define NFC_MAX_CS 3
 /* Greatest id for a nand ready/busy pin (range is [0; NFC_MAX_RB]) */
 #define NFC_MAX_RB 1
+/* Polling sessions are delayed by POLL_PERIOD us until POLL_TIMEOUT is reached */
+#define POLL_PERIOD 10
+#define POLL_TIMEOUT 1000
 
 #define NDCR (0x00) /* Control register */
 #define NDTR0CS0 (0x04) /* Timing Parameter 0 for CS0 */
@@ -216,8 +219,9 @@ static void marvell_nfc_prepare_cmd(struct mtd_info *mtd)
 
 	/* Assert ND_RUN bit and wait the NFC to be ready */
 	writel(ndcr | NDCR_ND_RUN, nfc->regs + NDCR);
-	ret = readl_poll_timeout(nfc->regs + NDSR, val,
-				 val & NDSR_WRCMDREQ, 0, 1000);
+	ret = readl_relaxed_poll_timeout(nfc->regs + NDSR, val,
+					val & NDSR_WRCMDREQ,
+					POLL_PERIOD, POLL_TIMEOUT);
 	if (ret) {
 		dev_err(nfc->dev, "Timeout on WRCMDRE\n");
 		return;
@@ -239,8 +243,9 @@ static int marvell_nfc_end_cmd(struct mtd_info *mtd, int flag, char *label)
 		 * The command is being processed, wait for the ND_RUN bit to be
 		 * cleared by the NFC. If not, we must clear it by hand.
 		 */
-		ret = readl_poll_timeout(nfc->regs + NDCR, val,
-					 (val & NDCR_ND_RUN) == 0, 0, 1000);
+		ret = readl_relaxed_poll_timeout(nfc->regs + NDCR, val,
+						(val & NDCR_ND_RUN) == 0,
+						POLL_PERIOD, POLL_TIMEOUT);
 		if (ret) {
 			dev_err(nfc->dev, "Timeout on %s\n", label);
 			writel(readl(nfc->regs + NDCR) & ~NDCR_ND_RUN,
@@ -248,8 +253,9 @@ static int marvell_nfc_end_cmd(struct mtd_info *mtd, int flag, char *label)
 			return ret;
 		}
 	} else {
-		ret = readl_poll_timeout(nfc->regs + NDSR, val,
-					 val & flag, 0, 5000/*todo needed 5000 only for rb signal else1000*/);
+		ret = readl_relaxed_poll_timeout(nfc->regs + NDSR, val,
+						val & flag,
+						POLL_PERIOD, POLL_TIMEOUT);
 		if (ret) {
 			dev_err(nfc->dev, "Timeout on %s\n", label);
 			showif(NDSR);
