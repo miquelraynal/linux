@@ -474,8 +474,7 @@ static void marvell_nfc_read_buf(struct mtd_info *mtd, uint8_t *buf, int len)
 			last_step = len - i;
 		}
 
-		buf32[0] = readl(nfc->regs + NDDB);
-		buf32[1] = readl(nfc->regs + NDDB);
+		ioread32_rep(nfc->regs + NDDB, buf32, 2);
 
 		if (last_step == 0) {
 			i += NFC_FIFO_SIZE;
