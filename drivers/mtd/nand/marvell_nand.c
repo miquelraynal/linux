@@ -660,7 +660,7 @@ static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd, u8 *data, u8 *oob)
 		}
 
 		mtd->ecc_stats.failed++;
-		max_bitflips = -1;
+		max_bitflips = -EBADMSG;
 	} else if (ndsr & NDSR_CORERR) {
 		writel(ndsr, nfc->regs + NDSR);
 
