@@ -622,7 +622,18 @@ static void marvell_nfc_hw_ecc_disable(struct mtd_info *mtd)
 	}
 }
 
-static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd)
+static inline int is_buf_blank(u8 *buf, size_t len)
+{
+	if (!buf)
+		return 1;
+
+	for (; len > 0; len--)
+		if (*buf++ != 0xff)
+			return 0;
+	return 1;
+}
+
+static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd, u8 *data, u8 *oob)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
@@ -632,6 +643,21 @@ static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd)
 	ndsr = readl(nfc->regs + NDSR);
 	if (ndsr & NDSR_UNCERR) {
 		writel(ndsr, nfc->regs + NDSR);
+
+		/*
+		 * Blank pages (all 0xFF) with no ECC are recognized as bad
+		 * because hardware ECC engine expects non-empty ECC values
+		 * in that case, so whenever an uncorrectable error occurs,
+		 * check if the page is actually blank or not. This present
+		 * the disadvantage to declare a page is bad as long as only
+		 * one bitflip appeared (although it would probably have
+		 * been detected and corrected if the page was not empty).
+		 */
+		if (is_buf_blank(data, mtd->writesize) &&
+		    is_buf_blank(oob, mtd->oobsize)) {
+			if (probed) printk("is blank !\n");
+			return 0;
+		}
 
 		mtd->ecc_stats.failed++;
 		max_bitflips = -1;
@@ -760,7 +786,9 @@ static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
 		marvell_nfc_hw_ecc_read_chunk(mtd, chunk, buf, chip->oob_poi,
 					oob_required, page, using_hw_bch);
 
-		max_bitflips = marvell_nfc_hw_ecc_correct(mtd);
+		max_bitflips = marvell_nfc_hw_ecc_correct(mtd, buf,
+							  oob_required ?
+							  chip->oob_poi : NULL);
 	}
 
 	marvell_nfc_hw_ecc_disable(mtd);
