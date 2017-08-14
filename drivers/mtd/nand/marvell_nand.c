@@ -924,9 +924,7 @@ static void marvell_nfc_hw_ecc_write_chunk(struct mtd_info *mtd, int chunk,
 	iowrite32_rep(nfc->regs + NDDB, data, data_len / 4);
 
 	/* Pad user data with 2 bytes when using BCH (30B) */
-	oob += chunk * (lt->spare_bytes + lt->ecc_bytes + 2);
-//todo: this is the right way to do, but previous driver do it this way:
-//	oob += chunk * lt->spare_bytes;
+	oob += chunk * lt->spare_bytes;
 	iowrite32_rep(nfc->regs + NDDB, oob, oob_len / 4);
 }
 
