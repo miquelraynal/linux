@@ -1026,9 +1026,6 @@ static int marvell_nfc_hw_ecc_write_page_raw(struct mtd_info *mtd,
 	int last_oob_size = lt->last_spare_bytes + lt->last_ecc_bytes;
 	int chunk;
 
-	marvell_nfc_hw_ecc_write_oob(mtd, chip, page);
-	return 0;
-
 	if (!oob_required)
 		memset(chip->oob_poi, 0xFF, mtd->oobsize);
 
