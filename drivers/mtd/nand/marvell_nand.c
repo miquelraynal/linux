@@ -302,10 +302,6 @@ static int marvell_nfc_end_cmd(struct mtd_info *mtd, int flag, char *label)
 	return 0;
 }
 
-
-
-
-
 /* Send controls to the nand chip */
 static void marvell_nfc_cmd_ctrl(struct mtd_info *mtd, int data,
 				unsigned int ctrl)
