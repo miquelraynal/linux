@@ -387,19 +387,11 @@ static irqreturn_t marvell_nfc_isr(int irq, void *dev_id)
 	struct nand_chip *nand = nfc->controller.active;
 	struct mtd_info *mtd = nand_to_mtd(nand);
 	irqreturn_t status = IRQ_NONE;
-//	u32 reg, ndsr = 0;
-
-	//ndsr = readl(nfc->regs + NDSR);
-	//printk("irq (ndsr %x)\n", ndsr);
 
 	if (marvell_nfc_dev_ready(mtd)) {
 		complete(&nfc->rdy);
 		status = IRQ_HANDLED;
 	}
-
-	/* Clear interrupts */
-//	writel(ndsr, nfc->regs + NDSR);
-//	printk("IRQ handled %d (NDSR %x)\n", status == IRQ_HANDLED, reg);
 
 	return status;
 }
