@@ -54,6 +54,8 @@
 #define NDCR_RA_START (0x1 << 15)
 #define NDCR_RD_ID_CNT(x) (((x) & 0x7) << 16)
 #define NDCR_PAGE_SZ(x) (((x) == 2048) ? 0x1 << 24 : 0)
+#define NDCR_DWIDTH_M (0x1 << 26)
+#define NDCR_DWIDTH_C (0x1 << 27)
 #define NDCR_ND_RUN (0x1 << 28)
 #define NDCR_ECC_EN (0x1 << 30)
 #define NDCR_SPARE_EN (0x1 << 31)
@@ -1461,9 +1463,18 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 //todo		nand->bbt_md = &bbt_mirror_descr;
 	}
 
-	/* Select NFC final configuration now page size/block size are known */
+	/* Select NFC final configuration, now that the topology,
+	 * page size and block size are known.
+	 */
 	ndcr = readl(nfc->regs + NDCR);
 
+	/* Bus width */
+	if (nand->options & NAND_BUSWIDTH_16) {
+		dev_warn(dev, "16b bus width: topology no tested yet !\n");
+		ndcr |= NDCR_DWIDTH_M | NDCR_DWIDTH_C;
+	}
+
+	/* Page size, pages per block */
 	if (mtd->writesize > 512)
 		ndcr |= NDCR_PAGE_SZ(2048);
 
