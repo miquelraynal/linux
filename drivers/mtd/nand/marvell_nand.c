@@ -790,10 +790,11 @@ static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
 	chip->cmdfunc(mtd, NAND_CMD_READ0, 0, page);
 	for (chunk = 0; chunk < lt->full_chunk_cnt; chunk++) {
 		chip->cmdfunc(mtd, NAND_CMD_RNDOUT,
-			      ((chunk + 1) * (chunk_size)) - lt->ecc_bytes, -1);
+			((chunk + 1) * (chunk_size)) - lt->ecc_bytes, -1);
 		marvell_nfc_read_buf(mtd, chip->oob_poi +
-				     ((chunk + 1) * (oob_size + 2) - (lt->ecc_bytes + 2)),
-				     lt->ecc_bytes);
+				((chunk + 1) * (oob_size + 2) -
+					(lt->ecc_bytes + 2)),
+				lt->ecc_bytes);
 	}
 
 out:
