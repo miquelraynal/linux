@@ -1167,39 +1167,6 @@ static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
 		nfc->layout.last_spare_bytes = 0;
 		nfc->layout.last_ecc_bytes = 0;
 
-	} else if (mtd->writesize == 2048 && ecc->strength == 8) {
-		nfc->hw_ecc_algo = NAND_ECC_BCH;
-		nfc->layout.full_chunk_cnt = 1;
-		nfc->layout.data_bytes = 1024;
-		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
-		nfc->layout.last_chunk_cnt = 1;
-		nfc->layout.last_data_bytes = 1024;
-		nfc->layout.last_spare_bytes = 32;
-		nfc->layout.last_ecc_bytes = 30;
-
-	} else if (mtd->writesize == 2048 && ecc->strength == 12) {
-		nfc->hw_ecc_algo = NAND_ECC_BCH;
-		nfc->layout.full_chunk_cnt = 2;
-		nfc->layout.data_bytes = 704;
-		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
-		nfc->layout.last_chunk_cnt = 1;
-		nfc->layout.last_data_bytes = 640;
-		nfc->layout.last_spare_bytes = 0;
-		nfc->layout.last_ecc_bytes = 30;
-
-	} else if (mtd->writesize == 2048 && ecc->strength == 16) {
-		nfc->hw_ecc_algo = NAND_ECC_BCH;
-		nfc->layout.full_chunk_cnt = 4;
-		nfc->layout.data_bytes = 512;
-		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
-		nfc->layout.last_chunk_cnt = 1;
-		nfc->layout.last_data_bytes = 0;
-		nfc->layout.last_spare_bytes = 32;
-		nfc->layout.last_ecc_bytes = 30;
-
 	} else if (mtd->writesize == 4096 && ecc->strength == 4) {
 		nfc->hw_ecc_algo = NAND_ECC_BCH;
 		nfc->layout.full_chunk_cnt = 2;
@@ -1216,68 +1183,6 @@ static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
 		nfc->layout.last_chunk_cnt = 1;
 		nfc->layout.last_data_bytes = 0;
 		nfc->layout.last_spare_bytes = 64;
-		nfc->layout.last_ecc_bytes = 30;
-
-	} else if (mtd->writesize == 4096 && ecc->strength == 12) {
-		nfc->hw_ecc_algo = NAND_ECC_BCH;
-		nfc->layout.full_chunk_cnt = 5;
-		nfc->layout.data_bytes = 704;
-		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
-		nfc->layout.last_chunk_cnt = 1;
-		nfc->layout.last_data_bytes = 576;
-		nfc->layout.last_spare_bytes = 32;
-		nfc->layout.last_ecc_bytes = 30;
-
-	} else if (mtd->writesize == 4096 && ecc->strength == 16) {
-		nfc->hw_ecc_algo = NAND_ECC_BCH;
-		nfc->layout.full_chunk_cnt = 8;
-		nfc->layout.data_bytes = 512;
-		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
-		nfc->layout.last_chunk_cnt = 1;
-		nfc->layout.last_data_bytes = 0;
-		nfc->layout.last_spare_bytes = 32;
-		nfc->layout.last_ecc_bytes = 30;
-
-	} else if (mtd->writesize == 8192 && ecc->strength == 4) {
-		nfc->hw_ecc_algo = NAND_ECC_BCH;
-		nfc->layout.full_chunk_cnt = 4;
-		nfc->layout.data_bytes = 2016;
-		nfc->layout.spare_bytes = 32;
-		nfc->layout.ecc_bytes = 30;
-
-	} else if (mtd->writesize == 8192 && ecc->strength == 8) {
-		nfc->hw_ecc_algo = NAND_ECC_BCH;
-		nfc->layout.full_chunk_cnt = 8;
-		nfc->layout.data_bytes = 1024;
-		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
-		nfc->layout.last_chunk_cnt = 1;
-		nfc->layout.last_data_bytes = 0;
-		nfc->layout.last_spare_bytes = 160;
-		nfc->layout.last_ecc_bytes = 30;
-
-	} else if (mtd->writesize == 8192 && ecc->strength == 12) {
-		nfc->hw_ecc_algo = NAND_ECC_BCH;
-		nfc->layout.full_chunk_cnt = 11;
-		nfc->layout.data_bytes = 704;
-		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
-		nfc->layout.last_chunk_cnt = 1;
-		nfc->layout.last_data_bytes = 448;
-		nfc->layout.last_spare_bytes = 64;
-		nfc->layout.last_ecc_bytes = 30;
-
-	} else if (mtd->writesize == 8192 && ecc->strength == 16) {
-		nfc->hw_ecc_algo = NAND_ECC_BCH;
-		nfc->layout.full_chunk_cnt = 16;
-		nfc->layout.data_bytes = 512;
-		nfc->layout.spare_bytes = 0;
-		nfc->layout.ecc_bytes = 30;
-		nfc->layout.last_chunk_cnt = 1;
-		nfc->layout.last_data_bytes = 0;
-		nfc->layout.last_spare_bytes = 32;
 		nfc->layout.last_ecc_bytes = 30;
 
 	} else {
