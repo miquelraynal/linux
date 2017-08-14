@@ -1079,114 +1079,61 @@ static int marvell_nfc_hw_ecc_write_oob_raw(struct mtd_info *mtd,
 	return 0;
 }
 
-/* HW ECC layouts */
-static int marvell_nand_ooblayout_hw_hmg_ecc(struct mtd_info *mtd, int section,
-					     struct mtd_oob_region *oobregion)
+/* HW ECC layouts, identical to old pxa_3xx driver to be fully backward compatible */
+static int marvell_nand_ooblayout_ecc(struct mtd_info *mtd, int section,
+				     struct mtd_oob_region *oobregion)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	struct marvell_hw_ecc_layout *lt = &nfc->layout;
+	int nchunks = lt->full_chunk_cnt;
 
-	if (section)
+	if (section >= nchunks)
 		return -ERANGE;
 
-	oobregion->offset = 0; //todo: bbm should be bytes 0 & 1 ?
+	oobregion->offset = ((lt->spare_bytes + lt->ecc_bytes) * section) +
+		lt->spare_bytes;
 	oobregion->length = lt->ecc_bytes;
 
 	return 0;
 }
 
-static int marvell_nand_ooblayout_hw_hmg_free(struct mtd_info *mtd, int section,
-					      struct mtd_oob_region *oobregion)
+static int marvell_nand_ooblayout_free(struct mtd_info *mtd, int section,
+				      struct mtd_oob_region *oobregion)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	struct marvell_hw_ecc_layout *lt = &nfc->layout;
+	int nchunks = lt->full_chunk_cnt;
 
-	if (section)
+	if (section >= nchunks)
 		return -ERANGE;
 
-	oobregion->offset = lt->ecc_bytes;
-	oobregion->length = mtd->oobsize - lt->ecc_bytes;
-
-	return 0;
-}
-
-static const struct mtd_ooblayout_ops marvell_nand_ooblayout_hw_hmg_ops = {
-	.ecc = marvell_nand_ooblayout_hw_hmg_ecc,
-	.free = marvell_nand_ooblayout_hw_hmg_free,
-};
-
-static int marvell_nand_ooblayout_hw_bch_ecc(struct mtd_info *mtd, int section,
-					     struct mtd_oob_region *oobregion)
-{
-	struct nand_chip *nand = mtd_to_nand(mtd);
-	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	struct marvell_hw_ecc_layout *lt = &nfc->layout;
-
-//	printk("%s (section %d)\n", __FUNCTION__, section);
-//	dump_stack();
-
-	if (section >= lt->full_chunk_cnt)
-		return -ERANGE;
-
-	oobregion->offset = lt->spare_bytes +
-		(section * (lt->spare_bytes + lt->ecc_bytes));
-	oobregion->length = lt->ecc_bytes;
-
-	return 0;
-}
-
-static int marvell_nand_ooblayout_hw_bch_free(struct mtd_info *mtd, int section,
-					      struct mtd_oob_region *oobregion)
-{
-	struct nand_chip *nand = mtd_to_nand(mtd);
-	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	struct marvell_hw_ecc_layout *lt = &nfc->layout;
-
-//	printk("%s (section %d)\n", __FUNCTION__, section);
-//	dump_stack();
-
-	if (section >= lt->full_chunk_cnt)
-		return -ERANGE;
-
-	if (!lt->spare_bytes) {
-		oobregion->offset = 0;
-		oobregion->length = 0;
+	if (!lt->spare_bytes)
 		return 0;
-	}
 
 	oobregion->offset = section * (lt->spare_bytes + lt->ecc_bytes);
 	oobregion->length = lt->spare_bytes;
-
-	/* BBM sometimes are in the OOB data */
-/*	if (mtd->writesize == 2048 && ecc->strength == 4 && section == 1) {
-		oobregion->length -= 2;
-	} else if (mtd->writesize == 4096 && ecc->strength == 4 && section == 1) {
-		oobregion->offset += 8;
-		oobregion->length -= 8;
-	}
-*/
 	if (!section) {
 		/*
 		 * Bootrom looks in bytes 0 & 5 for bad blocks for the
 		 * 4KB page / 4bit BCH combination.
 		 */
-/*		if (mtd->writesize == 4096 && lt->data_bytes == 2048) {
+		if (mtd->writesize == 4096 && lt->data_bytes == 2048) {
 			oobregion->offset += 6;
 			oobregion->length -= 6;
 		} else {
 			oobregion->offset += 2;
 			oobregion->length -= 2;
 		}
-*/	}
+	}
 
 	return 0;
 }
 
-static const struct mtd_ooblayout_ops marvell_nand_ooblayout_hw_bch_ops = {
-	.ecc = marvell_nand_ooblayout_hw_bch_ecc,
-	.free = marvell_nand_ooblayout_hw_bch_free,
+static const struct mtd_ooblayout_ops marvell_nand_ooblayout_ops = {
+	.ecc = marvell_nand_ooblayout_ecc,
+	.free = marvell_nand_ooblayout_free,
 };
 
 static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
