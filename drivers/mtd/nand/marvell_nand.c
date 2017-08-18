@@ -720,25 +720,19 @@ static void marvell_nfc_hw_ecc_disable(struct mtd_info *mtd)
 	}
 }
 
-static inline int is_buf_blank(u8 *buf, size_t len)
-{
-	if (!buf)
-		return 1;
-
-	for (; len > 0; len--)
-		if (*buf++ != 0xff)
-			return 0;
-	return 1;
-}
-
-static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd, u8 *data, u8 *oob)
+static void marvell_nfc_hw_ecc_correct(struct mtd_info *mtd,
+				       u8 *data, int data_len,
+				       u8 *oob, int oob_len,
+				       unsigned int *max_bitflips)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
-	unsigned int bf, max_bitflips = 0;
+	int bf = 0;
 	u32 ndsr;
 
 	ndsr = readl(nfc->regs + NDSR);
+
+	/* Check uncorrectable error flag */
 	if (ndsr & NDSR_UNCERR) {
 		writel(ndsr, nfc->regs + NDSR);
 
@@ -746,63 +740,57 @@ static int marvell_nfc_hw_ecc_correct(struct mtd_info *mtd, u8 *data, u8 *oob)
 		 * Blank pages (all 0xFF) with no ECC are recognized as bad
 		 * because hardware ECC engine expects non-empty ECC values
 		 * in that case, so whenever an uncorrectable error occurs,
-		 * check if the page is actually blank or not. This present
-		 * the disadvantage to declare a page is bad as long as only
-		 * one bitflip appeared (although it would probably have
-		 * been detected and corrected if the page was not empty).
+		 * check if the page is actually blank or not.
+		 *
+		 * It is important to check the emptyness only on oob_len,
+		 * which only covers the spare bytes because after a read with
+		 * ECC enabled, the ECC bytes in the buffer have been set by the
+		 * ECC engine, so they are not 0xFF.
 		 */
-		if (is_buf_blank(data, mtd->writesize) &&
-		    is_buf_blank(oob, mtd->oobsize))
-			return 0;
+		bf = nand_check_erased_ecc_chunk(data, data_len, NULL, 0,
+						 oob, oob_len,
+						 nand->ecc.strength);
+		if (bf < 0) {
+			mtd->ecc_stats.failed++;
+			return;
+		}
+	}
 
-		mtd->ecc_stats.failed++;
-		max_bitflips = -EBADMSG;
-	} else if (ndsr & NDSR_CORERR) {
+	/* Check correctable error flag */
+	if (ndsr & NDSR_CORERR) {
 		writel(ndsr, nfc->regs + NDSR);
 
 		if (nfc->hw_ecc_algo == NAND_ECC_BCH)
 			bf = NDSR_ERRCNT(ndsr);
 		else
 			bf = 1;
-
-		mtd->ecc_stats.corrected += bf;
-		max_bitflips = max_t(unsigned int, max_bitflips, bf);
 	}
 
-	return max_bitflips;
+	/*
+	 * Derive max_bitflips either from the number of bitflips detected by
+	 * the hardware ECC engine or by nand_check_erased_ecc_chunk().
+	 */
+	mtd->ecc_stats.corrected += bf;
+	*max_bitflips = max_t(unsigned int, *max_bitflips, bf);
 }
 
 /* Reads with HW ECC */
 static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
-					  u8 *data, u8 *oob_poi, int oob_required,
+					  u8 *data, int data_len,
+					  u8 *oob, int oob_len, int oob_required,
 					  int page, bool using_hw_bch)
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(nand);
 	struct marvell_nfc *nfc = to_marvell_nfc(nand->controller);
 	struct marvell_hw_ecc_layout *lt = &nfc->layout;
-	int data_len, oob_len, read_len, xtype, i = 0;
-	u8 dummy_oob[mtd->oobsize];
-	u8 *oob;
-
-	if (chunk < lt->full_chunk_cnt) {
-		data_len = lt->data_bytes;
-		oob_len = lt->spare_bytes;
-	} else {
-		data_len = lt->last_data_bytes;
-		oob_len = lt->last_spare_bytes;
-	}
+	int read_len, xtype, i = 0;
 
 	/*
 	 * Reading spare area is mandatory when using HW ECC or read operation
 	 * will trigger uncorrectable ECC errors, but do not read ECC here.
 	 */
 	read_len = data_len + oob_len;
-
-	if (oob_required)
-		oob = oob_poi;
-	else
-		oob = dummy_oob;
 
 	/*
 	 * Trigger the naked read operation only on the last chunk.
@@ -843,7 +831,6 @@ static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
 	 * Length is a multiple of 32, hence it is a multiple of 8 too.
 	 *
 	 */
-	data += chunk * lt->data_bytes;
 	for (i = 0; i < data_len; i += 32) {
 		marvell_nfc_end_cmd(mtd, NDSR_RDDREQ,
 				    "RDDREQ while draining FIFO (data)");
@@ -851,7 +838,6 @@ static void marvell_nfc_hw_ecc_read_chunk(struct mtd_info *mtd, int chunk,
 		data += 32;
 	}
 
-	oob += chunk * (lt->spare_bytes + lt->ecc_bytes + 2);
 	for (i = 0; i < oob_len; i += 32) {
 		marvell_nfc_end_cmd(mtd, NDSR_RDDREQ,
 				    "RDDREQ while draining FIFO (OOB)");
@@ -867,11 +853,14 @@ static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
 	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
 	struct marvell_hw_ecc_layout *lt = &nfc->layout;
 	int nchunks = lt->full_chunk_cnt + lt->last_chunk_cnt;
-	int oob_size = lt->spare_bytes + lt->ecc_bytes;
-	int chunk_size = lt->data_bytes + oob_size;
-	unsigned int max_bitflips = 0;
+	int max_bitflips = 0;
 	bool using_hw_bch = (nfc->hw_ecc_algo == NAND_ECC_BCH);
-	int chunk;
+	u8 *data, *oob;
+	u8 dummy_oob[mtd->oobsize];
+	int chunk, data_len, oob_len, ecc_len;
+	/* Following sizes are used to read the ECC bytes after ECC operation */
+	int fixed_oob_size = lt->spare_bytes + lt->ecc_bytes;
+	int fixed_chunk_size = lt->data_bytes + fixed_oob_size;
 
 	if (oob_required)
 		memset(chip->oob_poi, 0xFF, mtd->oobsize);
@@ -879,12 +868,37 @@ static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
 	marvell_nfc_hw_ecc_enable(mtd);
 
 	for (chunk = 0; chunk < nchunks; chunk++) {
-		marvell_nfc_hw_ecc_read_chunk(mtd, chunk, buf, chip->oob_poi,
-					oob_required, page, using_hw_bch);
+		if (chunk == 0) {
+			/* Init pointers to iterate through the chunks */
+			data = buf;
+			if (oob_required)
+				oob = chip->oob_poi;
+			else
+				oob = dummy_oob;
+		} else {
+			/* Update pointers */
+			data += lt->data_bytes;
+			oob += (lt->spare_bytes + lt->ecc_bytes + 2);
+		}
 
-		max_bitflips = marvell_nfc_hw_ecc_correct(mtd, buf,
-							  oob_required ?
-							  chip->oob_poi : NULL);
+		/* Update length */
+		if (chunk < lt->full_chunk_cnt) {
+			data_len = lt->data_bytes;
+			oob_len = lt->spare_bytes;
+			ecc_len = lt->ecc_bytes;
+		} else {
+			data_len = lt->last_data_bytes;
+			oob_len = lt->last_spare_bytes;
+			ecc_len = lt->last_ecc_bytes;
+		}
+
+		/* Read the chunk and detect number of bitflips */
+		marvell_nfc_hw_ecc_read_chunk(mtd, chunk, data, data_len,
+					      oob, oob_len, oob_required,
+					      page, using_hw_bch);
+
+		marvell_nfc_hw_ecc_correct(mtd, data, data_len,
+					   oob, oob_len, &max_bitflips);
 	}
 
 	marvell_nfc_hw_ecc_disable(mtd);
@@ -896,11 +910,11 @@ static int marvell_nfc_hw_ecc_read_page(struct mtd_info *mtd,
 	chip->cmdfunc(mtd, NAND_CMD_READ0, 0, page);
 	for (chunk = 0; chunk < lt->full_chunk_cnt; chunk++) {
 		chip->cmdfunc(mtd, NAND_CMD_RNDOUT,
-			((chunk + 1) * (chunk_size)) - lt->ecc_bytes, -1);
+			((chunk + 1) * (fixed_chunk_size)) - lt->ecc_bytes, -1);
 		marvell_nfc_read_buf(mtd, chip->oob_poi +
-				((chunk + 1) * (oob_size + 2) -
-					(lt->ecc_bytes + 2)),
-				lt->ecc_bytes);
+				     ((chunk + 1) * (fixed_oob_size + 2) -
+				      (lt->ecc_bytes + 2)),
+				     lt->ecc_bytes);
 	}
 
 out:
