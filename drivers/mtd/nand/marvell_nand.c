@@ -1654,14 +1654,18 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 		return ret;
 	}
 
+	/*
+	 * Subpage write not available, prohibit also subpage read as in
+	 * userspace subpage acces would still be allowed and subpage write,
+	 * if used, would lead to numerous uncorrectable ECC errors.
+	 */
+	nand->options |= NAND_NO_SUBPAGE_WRITE;
+
 	ret = nand_scan_tail(mtd);
 	if (ret) {
 		dev_err(dev, "nand_scan_tail failed: %d\n", ret);
 		return ret;
 	}
-
-	/* Subpage write not available */
-	nand->options |= NAND_NO_SUBPAGE_WRITE;
 
 	ret = mtd_device_register(mtd, NULL, 0);
 	if (ret) {
