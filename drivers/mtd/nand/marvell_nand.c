@@ -112,6 +112,16 @@
 				__FUNCTION__, __LINE__);		\
 	}
 
+static void __maybe_unused dump_buf(const u8 *buf, int len)
+{
+	int i;
+
+	for (i = 0; i < len; i += 16)
+		printk("%02x %02x %02x %02x %02x %02x %02x %02x | %02x %02x %02x %02x %02x %02x %02x %02x\n",
+		       buf[i], buf[i+1], buf[i+2], buf[i+3], buf[i+4], buf[i+5], buf[i+6], buf[i+7],
+		       buf[8], buf[i+9], buf[i+10], buf[i+11], buf[i+12], buf[i+13], buf[i+14], buf[i+15]);
+}
+
 /*
  * Marvell ECC engine works differently than the others, in order to limit the
  * size of the IP, hardware engineers choose to set a fixed strength at 16 bits
