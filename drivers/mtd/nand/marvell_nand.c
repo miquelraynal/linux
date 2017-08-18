@@ -1645,7 +1645,7 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 			(mtd->erasesize / mtd->writesize));
 		return -ERANGE;
 	}
-	printk("pages per block %d\n", mtd->erasesize / mtd->writesize);
+
 	writel(ndcr,  nfc->regs + NDCR);
 
 	ret = marvell_nand_ecc_init(mtd, &nand->ecc, np);
