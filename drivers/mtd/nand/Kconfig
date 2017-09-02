@@ -472,6 +472,13 @@ config MTD_NAND_MXC
 	  This enables the driver for the NAND flash controller on the
 	  MXC processors.
 
+config MTD_NAND_MXC_V2
+       tristate "MXC NAND support (reworked)"
+       depends on ARCH_MXC
+       help
+         This enables the driver for the NAND flash controller on the
+         MXC processors.
+
 config MTD_NAND_SH_FLCTL
 	tristate "Support for NAND on Renesas SuperH FLCTL"
 	depends on SUPERH || COMPILE_TEST
