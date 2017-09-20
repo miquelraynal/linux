@@ -15,6 +15,8 @@ Optional properties:
  - marvell,nand-enable-arbiter:	Set to enable the bus arbiter
  - marvell,nand-keep-config:	Set to keep the NAND controller config as set
 				by the bootloader
+ - marvell,system-controller:	Set to retrieve the syscon node and then
+				use its regmap to enable the NAND controller
  - num-cs:			Number of chipselect lines to use
  - nand-on-flash-bbt: 		boolean to enable on flash bbt option if
 				not present false
