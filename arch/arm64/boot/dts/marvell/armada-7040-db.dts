@@ -152,6 +152,7 @@
 	nand-ecc-strength = <4>;
 	nand-ecc-step-size = <512>;
 	marvell,nand-enable-arbiter;
+	marvell,system-controller = <&cpm_syscon0>;
 	nand-on-flash-bbt;
 
 	partition@0 {
