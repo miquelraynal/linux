@@ -30,6 +30,8 @@
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/platform_data/mtd-nand-pxa3xx.h>
+#include <linux/mfd/syscon.h>
+#include <linux/regmap.h>
 
 #define	CHIP_DELAY_TIMEOUT	msecs_to_jiffies(200)
 #define NAND_STOP_DELAY		msecs_to_jiffies(40)
@@ -44,6 +46,10 @@
  * Hence this buffer should be at least 512 x 3. Let's pick 2048.
  */
 #define INIT_BUFFER_SIZE	2048
+
+/* System control register and bit to enable NAND on some boards */
+#define GENCONF_SOC_DEVICE_MUX	0x208
+#define GENCONF_SOC_DEVICE_MUX_NFC_EN BIT(0)
 
 /* registers and bit definitions */
 #define NDCR		(0x00) /* Control register */
@@ -1924,9 +1930,24 @@ static int pxa3xx_nand_probe_dt(struct platform_device *pdev)
 	struct device_node *np = pdev->dev.of_node;
 	const struct of_device_id *of_id =
 			of_match_device(pxa3xx_nand_dt_ids, &pdev->dev);
+	struct regmap *sysctrl_base =
+		syscon_regmap_lookup_by_phandle(pdev->dev.of_node,
+						"marvell,system-controller");
 
 	if (!of_id)
 		return 0;
+
+	/*
+	 * Some boards like Armada 7k/8k need to enable manually the NAND
+	 * controller to avoid being bootloader dependant. This is done
+	 * through the use of a single bit in the System Functions registers.
+	 */
+	if (!IS_ERR(sysctrl_base)) {
+		u32 mux_reg;
+		regmap_read(sysctrl_base, GENCONF_SOC_DEVICE_MUX, &mux_reg);
+		mux_reg |= GENCONF_SOC_DEVICE_MUX_NFC_EN;
+		regmap_write(sysctrl_base, GENCONF_SOC_DEVICE_MUX, mux_reg);
+	}
 
 	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
 	if (!pdata)
