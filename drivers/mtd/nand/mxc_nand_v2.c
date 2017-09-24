@@ -19,7 +19,7 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/mtd/mtd.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/mtd/partitions.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
@@ -139,9 +139,9 @@ struct mxc_nand_devtype_data {
        void (*enable_spare_only)(struct mtd_info *nfc, int enable);
        int (*get_hwecc_status)(struct mxc_nfc *nfc);
        void (*preset)(struct mtd_info *mtd);
-       int (*setup_data_interface)(struct mtd_info *mtd,
-                                   const struct nand_data_interface *conf,
-                                   bool check_only);
+	int (*setup_data_interface)(struct mtd_info *mtd, int chipnr,
+				    const struct nand_data_interface *conf);
+
        void (*send_cmd)(struct mxc_nfc *nfc, uint16_t cmd, int useirq);
        void (*send_addr)(struct mxc_nfc *nfc, uint16_t addr, int islast);
        void (*trig_data_copy)(struct mxc_nfc *nfc, int buffer,
@@ -668,9 +668,8 @@ static void preset_imx5x(struct mtd_info *mtd)
        writel(0, NFC_V3_DELAY_LINE);
 }
 
-static int setup_data_interface_imx25(struct mtd_info *mtd,
-                                     const struct nand_data_interface *conf,
-                                     bool check_only)
+static int setup_data_interface_imx25(struct mtd_info *mtd, int chipnr,
+				      const struct nand_data_interface *conf)
 {
        struct nand_chip *nand = mtd_to_nand(mtd);
        struct mxc_nfc *nfc = to_mxc_nfc(nand->controller);
@@ -729,7 +728,7 @@ static int setup_data_interface_imx25(struct mtd_info *mtd,
                return -EINVAL;
        }
 
-       if (check_only)
+       if (chipnr < 0)
                return 0;
 
        ret = clk_set_rate(nfc->clk, rate);
