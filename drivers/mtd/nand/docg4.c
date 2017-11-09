@@ -864,7 +864,7 @@ static int docg4_read_oob(struct mtd_info *mtd, struct nand_chip *nand,
 
 	dev_dbg(doc->dev, "%s: page %x\n", __func__, page);
 
-	docg4_command(mtd, NAND_CMD_READ0, nand->ecc.size, page);
+	nand_read_page_op(nand, page, nand->ecc.size, NULL, 0);
 
 	writew(DOC_ECCCONF0_READ_MODE | DOCG4_OOB_SIZE, docptr + DOC_ECCCONF0);
 	write_nop(docptr);
@@ -900,6 +900,7 @@ static int docg4_erase_block(struct mtd_info *mtd, int page)
 	struct docg4_priv *doc = nand_get_controller_data(nand);
 	void __iomem *docptr = doc->virtadr;
 	uint16_t g4_page;
+	int status;
 
 	dev_dbg(doc->dev, "%s: page %04x\n", __func__, page);
 
@@ -939,7 +940,11 @@ static int docg4_erase_block(struct mtd_info *mtd, int page)
 	poll_status(doc);
 	write_nop(docptr);
 
-	return nand->waitfunc(mtd, nand);
+	status = nand->waitfunc(mtd, nand);
+	if (status < 0)
+		return status;
+
+	return status & NAND_STATUS_FAIL ? -EIO : 0;
 }
 
 static int write_page(struct mtd_info *mtd, struct nand_chip *nand,
