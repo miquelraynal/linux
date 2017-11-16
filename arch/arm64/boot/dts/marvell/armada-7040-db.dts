@@ -151,6 +151,7 @@
 	 * disable the SPI), the "status = "okay";" line have to be
 	 * added here.
 	 */
+	status = "okay";
 	pinctrl-0 = <&nand_pins>, <&nand_rb>;
 	pinctrl-names = "default";
 
@@ -187,7 +188,7 @@
 };
 
 &cpm_spi1 {
-	status = "okay";
+	status = "disabled";
 
 	spi-flash@0 {
 		#address-cells = <0x1>;

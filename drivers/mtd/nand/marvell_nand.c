@@ -858,7 +858,7 @@ static void marvell_nfc_hw_ecc_bch_read_chunk(struct nand_chip *chip, int chunk,
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(chip);
 	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
 	const struct marvell_hw_ecc_layout *lt = to_marvell_nand(chip)->layout;
-	int i, j;
+	int i, j, ret;
 	struct marvell_nfc_op nfc_op = {
 		.ndcb[0] = NDCB0_CMD_TYPE(TYPE_READ) |
 			   NDCB0_ADDR_CYC(marvell_nand->addr_cyc) |
@@ -873,7 +873,8 @@ static void marvell_nfc_hw_ecc_bch_read_chunk(struct nand_chip *chip, int chunk,
 	 */
 	nfc_op.ndcb[3] = data_len + oob_len;
 
-	if (marvell_nfc_prepare_cmd(chip))
+	ret = marvell_nfc_prepare_cmd(chip);
+	if (ret)
 		return;
 
 	if (chunk == 0)
@@ -1145,7 +1146,7 @@ static void marvell_nfc_hw_ecc_bch_write_chunk(struct nand_chip *chip,
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(chip);
 	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
 	const struct marvell_hw_ecc_layout *lt = to_marvell_nand(chip)->layout;
-	int data_len, oob_len, i;
+	int data_len, oob_len, i, ret;
 	struct marvell_nfc_op nfc_op = {
 		.ndcb[0] = NDCB0_CMD_TYPE(TYPE_WRITE) | NDCB0_LEN_OVRD,
 	};
@@ -1188,7 +1189,8 @@ static void marvell_nfc_hw_ecc_bch_write_chunk(struct nand_chip *chip,
 	 * If this is the first chunk, the previous command also embedded
 	 * the write operation, no need to repeat it.
 	 */
-	if (marvell_nfc_prepare_cmd(chip))
+	ret = marvell_nfc_prepare_cmd(chip);
+	if (ret)
 		return;
 
 	marvell_nfc_send_cmd(chip, &nfc_op);
@@ -1515,13 +1517,20 @@ static int marvell_nfc_reset_cmd_type_exec(struct nand_chip *chip,
 
 	marvell_nfc_send_cmd(chip, &nfc_op);
 	ret = marvell_nfc_wait_ndrun(chip);
+	if (ret)
+		return ret;
+
 	cond_delay(nfc_op.cle_ale_delay_ns);
 
-	if (nfc_op.rdy_timeout_ms)
+	if (nfc_op.rdy_timeout_ms) {
 		ret = marvell_nfc_wait_op(chip, nfc_op.rdy_timeout_ms);
+		if (ret)
+			return ret;
+	}
+
 	cond_delay(nfc_op.rdy_delay_ns);
 
-	return ret;
+	return 0;
 }
 
 static int marvell_nfc_erase_cmd_type_exec(struct nand_chip *chip,
@@ -1539,13 +1548,20 @@ static int marvell_nfc_erase_cmd_type_exec(struct nand_chip *chip,
 
 	marvell_nfc_send_cmd(chip, &nfc_op);
 	ret = marvell_nfc_wait_ndrun(chip);
+	if (ret)
+		return ret;
+
 	cond_delay(nfc_op.cle_ale_delay_ns);
 
-	if (nfc_op.rdy_timeout_ms)
+	if (nfc_op.rdy_timeout_ms) {
 		ret = marvell_nfc_wait_op(chip, nfc_op.rdy_timeout_ms);
+		if (ret)
+			return ret;
+	}
+
 	cond_delay(nfc_op.rdy_delay_ns);
 
-	return ret;
+	return 0;
 }
 
 static int marvell_nfc_naked_access_exec(struct nand_chip *chip,
