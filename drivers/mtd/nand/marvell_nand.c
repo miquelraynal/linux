@@ -36,9 +36,17 @@
 #define MIN_RD_DEL_CNT		3
 /* Maximum number of contiguous address cycles */
 #define MAX_ADDRESS_CYC		7
-/* System control register and bit to enable NAND on some SoCs */
+/* System control registers/bits to enable the NAND controller on some SoCs */
 #define GENCONF_SOC_DEVICE_MUX	0x208
 #define GENCONF_SOC_DEVICE_MUX_NFC_EN BIT(0)
+#define GENCONF_SOC_DEVICE_MUX_ECC_CLK_RST BIT(20)
+#define GENCONF_SOC_DEVICE_MUX_ECC_CORE_RST BIT(21)
+#define GENCONF_SOC_DEVICE_MUX_NFC_INT_EN BIT(25)
+#define GENCONF_SOC_DEVICE_MUX_ECC_CORE_RST BIT(21)
+#define GENCONF_CLK_GATING_CTRL	0x220
+#define GENCONF_CLK_GATING_CTRL_ND_GATE BIT(2)
+#define GENCONF_ND_CLK_CTRL	0x700
+#define GENCONF_ND_CLK_CTRL_EN	BIT(0)
 
 /* NAND controller data flash control register */
 #define NDCR			0x00
@@ -271,8 +279,6 @@ static inline struct marvell_nand_chip_sel *to_nand_sel(struct marvell_nand_chip
  * @max_rb_nb:		Number of Ready/Busy lines available
  * @need_system_controller: Indicates if the SoC needs to have access to the
  *                      system controller (ie. to enable the NAND controller)
- * @need_arbiter:	Indicates if NAND/NOR arbitration must be manually
- *                      enabled (PXA only)
  * @legacy_of_bindings:	Indicates if DT parsing must be done using the old
  *			fashion way
  */
@@ -280,7 +286,6 @@ struct marvell_nfc_caps {
 	unsigned int max_cs_nb;
 	unsigned int max_rb_nb;
 	bool need_system_controller;
-	bool need_arbiter;
 	bool legacy_of_bindings;
 };
 
@@ -2219,12 +2224,12 @@ static void marvell_nand_chips_cleanup(struct marvell_nfc *nfc)
 static int marvell_nfc_init(struct marvell_nfc *nfc)
 {
 	struct device_node *np = nfc->dev->of_node;
-	u32 enable_arbiter = 0;
 
 	/*
 	 * Some SoCs like A7k/A8k need to enable manually the NAND
-	 * controller to avoid being bootloader dependent. This is done
-	 * through the use of a single bit in the System Functions registers.
+	 * controller, gated clocks and reset bits to avoid being bootloader
+	 * dependent. This is done through the use of the System Functions
+	 * registers.
 	 */
 	if (nfc->caps->need_system_controller) {
 		struct regmap *sysctrl_base = syscon_regmap_lookup_by_phandle(
@@ -2234,23 +2239,28 @@ static int marvell_nfc_init(struct marvell_nfc *nfc)
 		if (IS_ERR(sysctrl_base))
 			return PTR_ERR(sysctrl_base);
 
-		regmap_read(sysctrl_base, GENCONF_SOC_DEVICE_MUX, &reg);
-		reg |= GENCONF_SOC_DEVICE_MUX_NFC_EN;
+		reg = GENCONF_SOC_DEVICE_MUX_NFC_EN |
+			GENCONF_SOC_DEVICE_MUX_ECC_CLK_RST |
+			GENCONF_SOC_DEVICE_MUX_ECC_CORE_RST |
+			GENCONF_SOC_DEVICE_MUX_NFC_INT_EN |
+			GENCONF_SOC_DEVICE_MUX_ECC_CORE_RST;
 		regmap_write(sysctrl_base, GENCONF_SOC_DEVICE_MUX, reg);
+
+		regmap_read(sysctrl_base, GENCONF_CLK_GATING_CTRL, &reg);
+		reg |= GENCONF_CLK_GATING_CTRL_ND_GATE;
+		regmap_write(sysctrl_base, GENCONF_CLK_GATING_CTRL, reg);
+
+		regmap_read(sysctrl_base, GENCONF_ND_CLK_CTRL, &reg);
+		reg |= GENCONF_ND_CLK_CTRL_EN;
+		regmap_write(sysctrl_base, GENCONF_ND_CLK_CTRL, reg);
 	}
 
 	/*
-	 * Enable arbiter for proper NOR/NAND arbitration (PXA only, other SoCs
-	 * have this bit marked reserved).
-	 */
-	if (nfc->caps->need_arbiter)
-		enable_arbiter = NDCR_ND_ARB_EN;
-
-	/*
 	 * ECC operations and interruptions are only enabled when specifically
-	 * needed. ECC shall not be activated in the early stages (fails probe)
+	 * needed. ECC shall not be activated in the early stages (fails probe).
+	 * Arbiter flag, even if marked as "reserved", must be set (empirical).
 	 */
-	writel_relaxed(NDCR_RA_START | NDCR_ALL_INT | enable_arbiter,
+	writel_relaxed(NDCR_RA_START | NDCR_ALL_INT | NDCR_ND_ARB_EN,
 		       nfc->regs + NDCR);
 	writel_relaxed(0xFFFFFFFF, nfc->regs + NDSR);
 	writel_relaxed(0, nfc->regs + NDECCCTRL);
@@ -2357,7 +2367,6 @@ static const struct marvell_nfc_caps marvell_armada370_nfc_caps = {
 static const struct marvell_nfc_caps marvell_pxa3xx_nfc_caps = {
 	.max_cs_nb = 2,
 	.max_rb_nb = 1,
-	.need_arbiter = true,
 };
 
 static const struct marvell_nfc_caps marvell_armada_8k_nfc_legacy_caps = {
@@ -2376,7 +2385,6 @@ static const struct marvell_nfc_caps marvell_armada370_nfc_legacy_caps = {
 static const struct marvell_nfc_caps marvell_pxa3xx_nfc_legacy_caps = {
 	.max_cs_nb = 2,
 	.max_rb_nb = 1,
-	.need_arbiter = true,
 	.legacy_of_bindings = true,
 };
 
