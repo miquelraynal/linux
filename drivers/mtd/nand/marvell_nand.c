@@ -1973,7 +1973,8 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 		}
 	}
 
-	nsels /= sizeof(u32);
+	if (!pdata)
+		nsels /= sizeof(u32);
 	if (!nsels) {
 		dev_err(dev, "invalid reg property size\n");
 		return -EINVAL;
