@@ -338,7 +338,7 @@ static void __init zylonite_init_keypad(void)
 static inline void zylonite_init_keypad(void) {}
 #endif
 
-#if defined(CONFIG_MTD_NAND_PXA3xx) || defined(CONFIG_MTD_NAND_PXA3xx_MODULE)
+#if defined(CONFIG_MTD_NAND_MARVELL) || defined(CONFIG_MTD_NAND_MARVELL_MODULE)
 static struct mtd_partition zylonite_nand_partitions[] = {
 	[0] = {
 		.name        = "Bootloader",
@@ -388,7 +388,7 @@ static void __init zylonite_init_nand(void)
 }
 #else
 static inline void zylonite_init_nand(void) {}
-#endif /* CONFIG_MTD_NAND_PXA3xx || CONFIG_MTD_NAND_PXA3xx_MODULE */
+#endif /* CONFIG_MTD_NAND_MARVELL || CONFIG_MTD_NAND_MARVELL_MODULE */
 
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static struct pxaohci_platform_data zylonite_ohci_info = {
