@@ -5874,21 +5874,7 @@ int nand_scan_ident(struct mtd_info *mtd, int maxchips,
 	 * ->cmdfunc() is legacy and will only be used if ->exec_op() is not
 	 * populated.
 	 */
-	if (chip->exec_op) {
-		/*
-		 * The implementation of ->exec_op() heavily relies on timings
-		 * to be accessible through the nand_data_interface structure.
-		 * Thus, the ->setup_data_interface() hook must be provided. The
-		 * controller driver will be noticed of delays it must apply
-		 * after each ->exec_op() instruction (if any) through the
-		 * .delay_ns field. The driver will then choose to handle the
-		 * delays manually if the controller cannot do it natively.
-		 */
-		if (!chip->setup_data_interface) {
-			pr_err("->setup_data_interface() should be provided\n");
-			return -EINVAL;
-		}
-	} else {
+	if (!chip->exec_op) {
 		/*
 		 * Default functions assigned for ->cmdfunc() and
 		 * ->select_chip() both expect ->cmd_ctrl() to be populated.
