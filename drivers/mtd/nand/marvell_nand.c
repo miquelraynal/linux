@@ -19,6 +19,10 @@
 #include <linux/mfd/syscon.h>
 #include <linux/regmap.h>
 #include <asm/unaligned.h>
+
+#include <linux/dmaengine.h>
+#include <linux/dma-mapping.h>
+#include <linux/dma/pxa-dma.h>
 #include <linux/platform_data/mtd-nand-pxa3xx.h>
 
 /* Data FIFO granularity, FIFO reads/writes must be a multiple of this length */
@@ -85,6 +89,7 @@
 #define NDCR_DWIDTH_M		BIT(26)
 #define NDCR_DWIDTH_C		BIT(27)
 #define NDCR_ND_RUN		BIT(28)
+#define NDCR_DMA_EN		BIT(29)
 #define NDCR_ECC_EN		BIT(30)
 #define NDCR_SPARE_EN		BIT(31)
 
@@ -289,6 +294,7 @@ static inline struct marvell_nand_chip_sel *to_nand_sel(struct marvell_nand_chip
  * @is_nfcv2:		NFCv2 has numerous enhancements compared to NFCv1, ie.
  *			BCH error detection and correction algorithm,
  *			NDCB3 register has been added
+ * @use_dma:		Use dma for data transfers
  */
 struct marvell_nfc_caps {
 	unsigned int max_cs_nb;
@@ -296,6 +302,7 @@ struct marvell_nfc_caps {
 	bool need_system_controller;
 	bool legacy_of_bindings;
 	bool is_nfcv2;
+	bool use_dma;
 };
 
 /*
@@ -333,6 +340,15 @@ struct marvell_nfc {
 	 */
 	u8 buf[FIFO_DEPTH] __aligned(sizeof(u32));
 	int buf_pos;
+
+	/* DMA information */
+	bool			use_data_dma;
+	unsigned long		mmio_phys;
+	struct scatterlist	sg;
+	enum dma_data_direction	dma_dir;
+	struct dma_chan		*dma_chan;
+	dma_cookie_t		dma_cookie;
+	int			drcmr_dat;
 };
 
 static inline struct marvell_nfc *to_marvell_nfc(struct nand_hw_control *ctrl)
@@ -462,6 +478,23 @@ static void marvell_nfc_clear_int(struct marvell_nfc *nfc, u32 int_mask)
 	writel_relaxed(int_mask, nfc->regs + NDSR);
 }
 
+/* DMA related helpers */
+static void marvell_nfc_disable_dma(struct marvell_nfc *nfc)
+{
+	u32 reg;
+
+	reg = readl_relaxed(nfc->regs + NDCR);
+	writel_relaxed(reg & ~NDCR_DMA_EN, nfc->regs + NDCR);
+}
+
+static void marvell_nfc_enable_dma(struct marvell_nfc *nfc)
+{
+	u32 reg;
+
+	reg = readl_relaxed(nfc->regs + NDCR);
+	writel_relaxed(reg | NDCR_DMA_EN, nfc->regs + NDCR);
+}
+
 /*
  * The core may ask the controller to use only 8-bit accesses while usually
  * using 16-bit accesses. Later function may blindly call this one with a
@@ -513,6 +546,8 @@ static int marvell_nfc_prepare_cmd(struct nand_chip *chip)
 	writel_relaxed(readl_relaxed(nfc->regs + NDSR), nfc->regs + NDSR);
 
 	/* Assert ND_RUN bit and wait the NFC to be ready */
+	if (nfc->caps->use_dma)
+		ndcr |= NDCR_DMA_EN;
 	writel_relaxed(ndcr | NDCR_ND_RUN, nfc->regs + NDCR);
 	ret = readl_relaxed_poll_timeout(nfc->regs + NDSR, val,
 					 val & NDSR_WRCMDREQ,
@@ -586,10 +621,17 @@ static int marvell_nfc_end_cmd(struct nand_chip *chip, int flag,
 	ret = readl_relaxed_poll_timeout(nfc->regs + NDSR, val,
 					 val & flag,
 					 POLL_PERIOD, POLL_TIMEOUT);
+
 	if (ret) {
 		dev_err(nfc->dev, "Timeout on %s\n", label);
+		if (nfc->dma_chan)
+			dmaengine_terminate_all(nfc->dma_chan);
 		return ret;
 	}
+
+	/* Do not clear RDDREQ/WRDREQ bits when using the DMA */
+	if (nfc->caps->use_dma && (flag & (NDSR_RDDREQ | NDSR_WRDREQ)))
+		return 0;
 
 	writel_relaxed(flag, nfc->regs + NDSR);
 
@@ -809,6 +851,10 @@ static void marvell_nfc_hw_ecc_correct(struct nand_chip *chip,
 	*max_bitflips = max_t(unsigned int, *max_bitflips, bf);
 }
 
+static int marvell_nfc_xfer_data_dma(struct marvell_nfc *nfc, bool reading,
+				     const void *buf, unsigned int len,
+				     unsigned int to_ms);
+
 /* Hamming read helpers */
 static int marvell_nfc_hw_ecc_hmg_do_read_page(struct nand_chip *chip, u8 *buf,
 					       bool oob_required, bool raw,
@@ -877,6 +923,10 @@ static int marvell_nfc_hw_ecc_hmg_do_read_page(struct nand_chip *chip, u8 *buf,
 	ret = marvell_nfc_wait_cmdd(chip);
 	if (ret)
 		return ret;
+
+	/* Now the transfers are finished, clear the "request" flags */
+	if (nfc->caps->use_dma)
+		writel_relaxed(NDSR_RDDREQ | NDSR_WRDREQ, nfc->regs + NDSR);
 
 	if (oob_required)
 		marvell_nfc_disable_spare(chip);
@@ -1752,11 +1802,7 @@ static int marvell_nfc_monolithic_access_exec(struct nand_chip *chip,
 		cond_delay(nfc_op.rdy_delay_ns);
 	}
 
-	if (nfc->caps->use_dma)
-		nfc->use_data_dma = true;
 	marvell_nfc_xfer_data(chip, subop, &nfc_op);
-	if (nfc->caps->use_dma)
-		nfc->use_data_dma = false;
 	ret = marvell_nfc_wait_cmdd(chip);
 	if (ret)
 		return ret;
@@ -2682,8 +2728,52 @@ static int marvell_nfc_init(struct marvell_nfc *nfc)
 	if (!nfc->caps->is_nfcv2)
 		setup |= NDCR_RD_ID_CNT(NFCV1_READID_LEN);
 
-	writel_relaxed(NDCR_RA_START | NDCR_ALL_INT | NDCR_ND_ARB_EN |
-		       /*NDCR_SPARE_EN |*/ setup, nfc->regs + NDCR);
+	/* Configure the DMA if appropriate */
+	if (nfc->caps->use_dma) {
+		struct dma_slave_config	config = {};
+		dma_cap_mask_t mask;
+		struct pxad_param param;
+		int ret;
+
+		if (!IS_ENABLED(CONFIG_PXA_DMA)) {
+			dev_err(nfc->dev,
+				"Please enable DMA in kernel configuration\n");
+			return -ENXIO;
+		}
+
+		ret = dma_set_mask_and_coherent(nfc->dev, DMA_BIT_MASK(32));
+		if (ret)
+			return ret;
+
+		dma_cap_zero(mask);
+		dma_cap_set(DMA_SLAVE, mask);
+		param.prio = PXAD_PRIO_LOWEST;
+		param.drcmr = nfc->drcmr_dat;
+		nfc->dma_chan =
+			dma_request_slave_channel_compat(mask, pxad_filter_fn,
+							 &param, nfc->dev,
+							 "data");
+		if (!nfc->dma_chan) {
+			dev_err(nfc->dev,
+				"unable to request data dma channel\n");
+			return -ENODEV;
+		}
+
+		config.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+		config.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
+		config.src_addr = nfc->mmio_phys + NDDB;
+		config.dst_addr = nfc->mmio_phys + NDDB;
+		config.src_maxburst = 32;
+		config.dst_maxburst = 32;
+		ret = dmaengine_slave_config(nfc->dma_chan, &config);
+		if (ret < 0) {
+			dev_err(nfc->dev, "Failed to configure DMA channel\n");
+			return ret;
+		}
+	}
+
+	writel_relaxed(NDCR_RA_START | NDCR_ALL_INT | NDCR_ND_ARB_EN | setup,
+		       nfc->regs + NDCR);
 	writel_relaxed(0xFFFFFFFF, nfc->regs + NDSR);
 	writel_relaxed(0, nfc->regs + NDECCCTRL);
 
@@ -2709,6 +2799,7 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	nfc->regs = devm_ioremap_resource(dev, r);
+	nfc->mmio_phys = r->start;
 	if (IS_ERR(nfc->regs))
 		return PTR_ERR(nfc->regs);
 
@@ -2750,6 +2841,16 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 	if (ret)
 		goto out_clk_unprepare;
 
+	if (nfc->caps->use_dma) {
+		r = platform_get_resource(pdev, IORESOURCE_DMA, 0);
+		if (!r) {
+			dev_err(dev, "No resource defined for data DMA\n");
+			ret = -ENXIO;
+			goto out_clk_unprepare;
+		}
+		nfc->drcmr_dat = r->start;
+	}
+
 	platform_set_drvdata(pdev, nfc);
 
 	ret = marvell_nand_chips_init(dev, nfc);
@@ -2769,6 +2870,11 @@ static int marvell_nfc_remove(struct platform_device *pdev)
 	struct marvell_nfc *nfc = platform_get_drvdata(pdev);
 
 	marvell_nand_chips_cleanup(nfc);
+
+	if (nfc->caps->use_dma) {
+		dmaengine_terminate_all(nfc->dma_chan);
+		dma_release_channel(nfc->dma_chan);
+	}
 
 	clk_disable_unprepare(nfc->ecc_clk);
 
@@ -2791,6 +2897,7 @@ static const struct marvell_nfc_caps marvell_armada370_nfc_caps = {
 static const struct marvell_nfc_caps marvell_pxa3xx_nfc_caps = {
 	.max_cs_nb = 2,
 	.max_rb_nb = 1,
+	.use_dma = true,
 };
 
 static const struct marvell_nfc_caps marvell_armada_8k_nfc_legacy_caps = {
@@ -2812,6 +2919,7 @@ static const struct marvell_nfc_caps marvell_pxa3xx_nfc_legacy_caps = {
 	.max_cs_nb = 2,
 	.max_rb_nb = 1,
 	.legacy_of_bindings = true,
+	.use_dma = true,
 };
 
 static const struct platform_device_id marvell_nfc_platform_ids[] = {
