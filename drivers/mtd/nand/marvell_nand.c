@@ -30,8 +30,7 @@
 #define FIFO_REP(x)		(x / sizeof(u32))
 #define BCH_SEQ_READS		(32 / FIFO_DEPTH)
 /* NFC does not support transfers of larger chunks at a time */
-#define MAX_CHUNK_SIZE_NFCV1	2048
-#define MAX_CHUNK_SIZE_NFCV2	2112
+#define MAX_CHUNK_SIZE		2112
 /* NFCv1 cannot read more that 7 bytes of ID */
 #define NFCV1_READID_LEN	7
 /* Polling is done at a pace of POLL_PERIOD us until POLL_TIMEOUT is reached */
@@ -321,6 +320,8 @@ struct marvell_nfc_caps {
  *			buffer when the read operation was not 8 bytes aligned
  *			as is the FIFO.
  * @buf_pos:		Position in the 'buf' buffer
+ * @dma_chan:		DMA channel (NFCv1 only)
+ * @dma_buf:		32-bit aligned buffer for DMA transfers (NFCv1 only)
  */
 struct marvell_nfc {
 	struct nand_hw_control controller;
@@ -341,14 +342,9 @@ struct marvell_nfc {
 	u8 buf[FIFO_DEPTH] __aligned(sizeof(u32));
 	int buf_pos;
 
-	/* DMA information */
-	bool			use_data_dma;
-	unsigned long		mmio_phys;
-	struct scatterlist	sg;
-	enum dma_data_direction	dma_dir;
-	struct dma_chan		*dma_chan;
-	dma_cookie_t		dma_cookie;
-	int			drcmr_dat;
+	/* DMA (NFCv1 only) */
+	struct dma_chan *dma_chan;
+	u8 *dma_buf;
 };
 
 static inline struct marvell_nfc *to_marvell_nfc(struct nand_hw_control *ctrl)
@@ -478,23 +474,6 @@ static void marvell_nfc_clear_int(struct marvell_nfc *nfc, u32 int_mask)
 	writel_relaxed(int_mask, nfc->regs + NDSR);
 }
 
-/* DMA related helpers */
-static void marvell_nfc_disable_dma(struct marvell_nfc *nfc)
-{
-	u32 reg;
-
-	reg = readl_relaxed(nfc->regs + NDCR);
-	writel_relaxed(reg & ~NDCR_DMA_EN, nfc->regs + NDCR);
-}
-
-static void marvell_nfc_enable_dma(struct marvell_nfc *nfc)
-{
-	u32 reg;
-
-	reg = readl_relaxed(nfc->regs + NDCR);
-	writel_relaxed(reg | NDCR_DMA_EN, nfc->regs + NDCR);
-}
-
 /*
  * The core may ask the controller to use only 8-bit accesses while usually
  * using 16-bit accesses. Later function may blindly call this one with a
@@ -546,8 +525,6 @@ static int marvell_nfc_prepare_cmd(struct nand_chip *chip)
 	writel_relaxed(readl_relaxed(nfc->regs + NDSR), nfc->regs + NDSR);
 
 	/* Assert ND_RUN bit and wait the NFC to be ready */
-	if (nfc->caps->use_dma)
-		ndcr |= NDCR_DMA_EN;
 	writel_relaxed(ndcr | NDCR_ND_RUN, nfc->regs + NDCR);
 	ret = readl_relaxed_poll_timeout(nfc->regs + NDSR, val,
 					 val & NDSR_WRCMDREQ,
@@ -629,8 +606,11 @@ static int marvell_nfc_end_cmd(struct nand_chip *chip, int flag,
 		return ret;
 	}
 
-	/* Do not clear RDDREQ/WRDREQ bits when using the DMA */
-	if (nfc->caps->use_dma && (flag & (NDSR_RDDREQ | NDSR_WRDREQ)))
+	/*
+	 * DMA function uses this helper to poll on CMDD bits without wanting
+	 * them to be bleared.
+	 */
+	if (nfc->caps->use_dma && (readl(nfc->regs + NDCR) & NDCR_DMA_EN))
 		return 0;
 
 	writel_relaxed(flag, nfc->regs + NDSR);
@@ -698,17 +678,15 @@ static void marvell_nfc_select_chip(struct mtd_info *mtd, int die_nr)
 
 	ndcr = readl_relaxed(nfc->regs + NDCR);
 
-	/* Ensure controller is not blocked in operation */
-	ndcr &= ~NDCR_ND_RUN;
+	/* Ensure controller is not blocked; also clear some fields */
+	ndcr &= ~(NDCR_ND_RUN | NDCR_DWIDTH_M | NDCR_DWIDTH_C |
+		  NDCR_PAGE_SZ(2048));
 
 	/* Adapt bus width */
 	if (chip->options & NAND_BUSWIDTH_16)
 		ndcr |= NDCR_DWIDTH_M | NDCR_DWIDTH_C;
 
-	/*
-	 * Page size as seen by the controller, either 512B or 2kiB. This size
-	 * will be the reference for the controller when using LEN_OVRD.
-	 */
+	/* Page size as seen by the controller, either 512B or 2kiB */
 	ndcr |= NDCR_PAGE_SZ(mtd->writesize);
 
 	/* Update the control register */
@@ -717,6 +695,7 @@ static void marvell_nfc_select_chip(struct mtd_info *mtd, int die_nr)
 	/* Also reset the interrupt status register */
 	marvell_nfc_clear_int(nfc, NDCR_ALL_INT);
 
+	nfc->selected_chip = chip;
 	marvell_nand->selected_die = die_nr;
 }
 
@@ -774,7 +753,12 @@ static void marvell_nfc_disable_hw_ecc(struct nand_chip *chip)
 	}
 }
 
-/* Enable/disable spare area (not used with BCH, only Hamming) */
+/*
+ * Enable/disable spare area
+ *
+ * NFCv1 needs it (see Hamming related functions). NFCv2 uses LEN_OVRD and thus
+ * does not need this bit to be set.
+ */
 static void marvell_nfc_enable_spare(struct nand_chip *chip)
 {
 	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
@@ -791,6 +775,103 @@ static void marvell_nfc_disable_spare(struct nand_chip *chip)
 
 	if (ndcr & NDCR_SPARE_EN)
 		writel_relaxed(ndcr & ~NDCR_SPARE_EN, nfc->regs + NDCR);
+}
+
+/* DMA related helpers */
+static void marvell_nfc_enable_dma(struct marvell_nfc *nfc)
+{
+	u32 reg;
+
+	reg = readl_relaxed(nfc->regs + NDCR);
+	writel_relaxed(reg | NDCR_DMA_EN, nfc->regs + NDCR);
+}
+
+static void marvell_nfc_disable_dma(struct marvell_nfc *nfc)
+{
+	u32 reg;
+
+	reg = readl_relaxed(nfc->regs + NDCR);
+	writel_relaxed(reg & ~NDCR_DMA_EN, nfc->regs + NDCR);
+}
+
+/* Read/write PIO/DMA accessors */
+static int marvell_nfc_xfer_data_dma(struct marvell_nfc *nfc,
+				     enum dma_data_direction direction,
+				     unsigned int len)
+{
+	unsigned int dma_len = min_t(int, ALIGN(len, 32), MAX_CHUNK_SIZE);
+	struct dma_async_tx_descriptor *tx;
+	struct scatterlist sg;
+	dma_cookie_t cookie;
+	int ret;
+
+	marvell_nfc_enable_dma(nfc);
+	/* Prepare the DMA transfer */
+	sg_init_one(&sg, nfc->dma_buf, dma_len);
+	dma_map_sg(nfc->dma_chan->device->dev, &sg, 1, direction);
+	tx = dmaengine_prep_slave_sg(nfc->dma_chan, &sg, 1,
+				     direction == DMA_FROM_DEVICE ?
+				     DMA_DEV_TO_MEM : DMA_MEM_TO_DEV,
+				     DMA_PREP_INTERRUPT);
+	if (!tx) {
+		dev_err(nfc->dev, "Could not prepare DMA S/G list\n");
+		return -ENXIO;
+	}
+
+	/* Do the task and wait for it to finish */
+	cookie = dmaengine_submit(tx);
+	ret = dma_submit_error(cookie);
+	if (ret)
+		return -EIO;
+
+	dma_async_issue_pending(nfc->dma_chan);
+	ret = marvell_nfc_wait_cmdd(nfc->selected_chip);
+	dma_unmap_sg(nfc->dma_chan->device->dev, &sg, 1, direction);
+	marvell_nfc_disable_dma(nfc);
+	if (ret) {
+		dev_err(nfc->dev, "Timeout waiting for DMA (status: %d)\n",
+			dmaengine_tx_status(nfc->dma_chan, cookie, NULL));
+		dmaengine_terminate_all(nfc->dma_chan);
+		return -ETIMEDOUT;
+	}
+
+	return 0;
+}
+
+static int marvell_nfc_xfer_data_in_pio(struct marvell_nfc *nfc, u8 *in,
+					unsigned int len)
+{
+	unsigned int last_len = len % FIFO_DEPTH;
+	unsigned int last_full_offset = round_down(len, FIFO_DEPTH);
+	int i;
+
+	for (i = 0; i < last_full_offset; i += FIFO_DEPTH)
+		ioread32_rep(nfc->regs + NDDB, in + i, FIFO_REP(FIFO_DEPTH));
+
+	if (last_len) {
+		ioread32_rep(nfc->regs + NDDB, nfc->buf, FIFO_REP(FIFO_DEPTH));
+		memcpy(in + last_full_offset, nfc->buf, last_len);
+	}
+
+	return 0;
+}
+
+static int marvell_nfc_xfer_data_out_pio(struct marvell_nfc *nfc, const u8 *out,
+					 unsigned int len)
+{
+	unsigned int last_len = len % FIFO_DEPTH;
+	unsigned int last_full_offset = round_down(len, FIFO_DEPTH);
+	int i;
+
+	for (i = 0; i < last_full_offset; i += FIFO_DEPTH)
+		iowrite32_rep(nfc->regs + NDDB, out + i, FIFO_REP(FIFO_DEPTH));
+
+	if (last_len) {
+		memcpy(nfc->buf, out + last_full_offset, last_len);
+		iowrite32_rep(nfc->regs + NDDB, nfc->buf, FIFO_REP(FIFO_DEPTH));
+	}
+
+	return 0;
 }
 
 static void marvell_nfc_hw_ecc_correct(struct nand_chip *chip,
@@ -851,10 +932,6 @@ static void marvell_nfc_hw_ecc_correct(struct nand_chip *chip,
 	*max_bitflips = max_t(unsigned int, *max_bitflips, bf);
 }
 
-static int marvell_nfc_xfer_data_dma(struct marvell_nfc *nfc, bool reading,
-				     const void *buf, unsigned int len,
-				     unsigned int to_ms);
-
 /* Hamming read helpers */
 static int marvell_nfc_hw_ecc_hmg_do_read_page(struct nand_chip *chip, u8 *buf,
 					       bool oob_required, bool raw,
@@ -872,12 +949,16 @@ static int marvell_nfc_hw_ecc_hmg_do_read_page(struct nand_chip *chip, u8 *buf,
 		.ndcb[1] = NDCB1_ADDRS(page),
 		.ndcb[2] = NDCB2_ADDR5(page),
 	};
-	unsigned int oob_bytes;
+	unsigned int oob_bytes = 0;
 	int ret;
 
 	/* NFCv2 needs more information about the operation being executed */
 	if (nfc->caps->is_nfcv2)
 		nfc_op.ndcb[0] |= NDCB0_CMD_XTYPE(XTYPE_MONOLITHIC_RW);
+
+	ret = marvell_nfc_prepare_cmd(chip);
+	if (ret)
+		return ret;
 
 	if (oob_required) {
 		marvell_nfc_enable_spare(chip);
@@ -886,70 +967,36 @@ static int marvell_nfc_hw_ecc_hmg_do_read_page(struct nand_chip *chip, u8 *buf,
 			oob_bytes += lt->ecc_bytes;
 	}
 
-	ret = marvell_nfc_prepare_cmd(chip);
-	if (ret)
-		return ret;
-
 	marvell_nfc_send_cmd(chip, &nfc_op);
 	ret = marvell_nfc_end_cmd(chip, NDSR_RDDREQ,
 				  "RDDREQ while draining FIFO (data/oob)");
 	if (ret)
 		return ret;
 
-	ret = marvell_nfc_wait_op(chip,
-				  chip->data_interface.timings.sdr.tPROG_max);
-	if (ret)
-		return ret;
-
-	/* Read the page... */
-	if (nfc->caps->use_dma)
-		ret = marvell_nfc_xfer_data_dma(nfc, true, buf, lt->data_bytes,
-						IRQ_TIMEOUT);
-	else
-		ioread32_rep(nfc->regs + NDDB, buf, FIFO_REP(lt->data_bytes));
-
-	/* ...then the OOB area */
-	if (oob_required) {
-		if (nfc->caps->use_dma)
-			ret = marvell_nfc_xfer_data_dma(nfc, true,
-							chip->oob_poi,
-							oob_bytes,
-							IRQ_TIMEOUT);
-		else
-			ioread32_rep(nfc->regs + NDDB, chip->oob_poi,
-				     FIFO_REP(oob_bytes));
+	/* Read the page then the OOB area */
+	if (nfc->caps->use_dma) {
+		marvell_nfc_xfer_data_dma(nfc, DMA_FROM_DEVICE,
+					  lt->data_bytes + oob_bytes);
+		memcpy(buf, nfc->dma_buf, lt->data_bytes);
+		if (oob_required)
+			memcpy(chip->oob_poi, nfc->dma_buf + lt->data_bytes,
+			       oob_bytes);
+	} else {
+		marvell_nfc_xfer_data_in_pio(nfc, buf, lt->data_bytes);
+		if (oob_required)
+			marvell_nfc_xfer_data_in_pio(nfc, chip->oob_poi,
+						     oob_bytes);
 	}
 
 	ret = marvell_nfc_wait_cmdd(chip);
 	if (ret)
 		return ret;
 
-	/* Now the transfers are finished, clear the "request" flags */
-	if (nfc->caps->use_dma)
-		writel_relaxed(NDSR_RDDREQ | NDSR_WRDREQ, nfc->regs + NDSR);
-
 	if (oob_required)
 		marvell_nfc_disable_spare(chip);
 
 	return 0;
 }
-
-/*todo: remove
-	if (0) {
-		int i, j, k;
-		printk("\nDump %d bytes of page %d:\n", full_page_sz, page);
-		for (i = 0; i < full_page_sz; i += 16) {
-			printk("[%04d] ", i);
-			for (j = 0; j < 2; j++) {
-				for (k = 0; k < 8; k++)
-					printk(KERN_CONT "%02x ",
-					       buf[i + (j * 8) + k]);
-				printk(KERN_CONT " ");
-			}
-			printk(KERN_CONT "\n");
-		}
-	}
-*/
 
 static int marvell_nfc_hw_ecc_hmg_read_page_raw(struct mtd_info *mtd,
 						struct nand_chip *chip, u8 *buf,
@@ -969,7 +1016,7 @@ static int marvell_nfc_hw_ecc_hmg_read_page(struct mtd_info *mtd,
 
 	marvell_nfc_enable_hw_ecc(chip);
 	marvell_nfc_hw_ecc_hmg_do_read_page(chip, buf, oob_required,
-						  false, page);
+					    false, page);
 	marvell_nfc_hw_ecc_correct(chip, buf, lt->data_bytes, chip->oob_poi,
 				   lt->spare_bytes, &max_bf);
 	marvell_nfc_disable_hw_ecc(chip);
@@ -1015,12 +1062,16 @@ static int marvell_nfc_hw_ecc_hmg_do_write_page(struct nand_chip *chip,
 		.ndcb[1] = NDCB1_ADDRS(page),
 		.ndcb[2] = NDCB2_ADDR5(page),
 	};
-	int oob_bytes;
+	int oob_bytes = 0;
 	int ret;
 
 	/* NFCv2 needs more information about the operation being executed */
 	if (nfc->caps->is_nfcv2)
 		nfc_op.ndcb[0] |= NDCB0_CMD_XTYPE(XTYPE_MONOLITHIC_RW);
+
+	ret = marvell_nfc_prepare_cmd(chip);
+	if (ret)
+		return ret;
 
 	if (oob_required) {
 		marvell_nfc_enable_spare(chip);
@@ -1029,24 +1080,26 @@ static int marvell_nfc_hw_ecc_hmg_do_write_page(struct nand_chip *chip,
 			oob_bytes += lt->ecc_bytes;
 	}
 
-	ret = marvell_nfc_prepare_cmd(chip);
-	if (ret)
-		return ret;
-
 	marvell_nfc_send_cmd(chip, &nfc_op);
 	ret = marvell_nfc_end_cmd(chip, NDSR_WRDREQ,
 				  "WRDREQ while loading FIFO (data)");
 	if (ret)
 		return ret;
 
-	/* Write the page... */
-// todo: dma
-	iowrite32_rep(nfc->regs + NDDB, buf, FIFO_REP(lt->data_bytes));
-
-	/* ...then the OOB area */
-	if (oob_required)
-		iowrite32_rep(nfc->regs + NDDB, chip->oob_poi,
-			      FIFO_REP(oob_bytes));
+	/* Write the page then the OOB area */
+	if (nfc->caps->use_dma) {
+		memcpy(nfc->dma_buf, buf, lt->data_bytes);
+		if (oob_required)
+			memcpy(nfc->dma_buf + lt->data_bytes, chip->oob_poi,
+			       oob_bytes);
+		marvell_nfc_xfer_data_dma(nfc, DMA_TO_DEVICE,
+					  lt->data_bytes + oob_bytes);
+	} else {
+		marvell_nfc_xfer_data_out_pio(nfc, buf, lt->data_bytes);
+		if (oob_required)
+			marvell_nfc_xfer_data_out_pio(nfc, chip->oob_poi,
+						      oob_bytes);
+	}
 
 	ret = marvell_nfc_wait_cmdd(chip);
 	if (ret)
@@ -1091,21 +1144,13 @@ static int marvell_nfc_hw_ecc_hmg_write_oob_raw(struct mtd_info *mtd,
 						struct nand_chip *chip,
 						int page)
 {
-	/* Invalidate page cache */
-	chip->pagebuf = -1;
-
-	return chip->ecc.write_page_raw(mtd, chip, chip->buffers->databuf, true,
-					page);
+	return chip->ecc.write_page_raw(mtd, chip, NULL, true, page);
 }
 
 static int marvell_nfc_hw_ecc_hmg_write_oob(struct mtd_info *mtd,
 					    struct nand_chip *chip, int page)
 {
-	/* Invalidate page cache */
-	chip->pagebuf = -1;
-
-	return chip->ecc.write_page(mtd, chip, chip->buffers->databuf, true,
-				    page);
+	return chip->ecc.write_page(mtd, chip, NULL, true, page);
 }
 
 /* BCH read helpers */
@@ -1154,7 +1199,7 @@ static void marvell_nfc_hw_ecc_bch_read_chunk(struct nand_chip *chip, int chunk,
 	struct marvell_nand_chip *marvell_nand = to_marvell_nand(chip);
 	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
 	const struct marvell_hw_ecc_layout *lt = to_marvell_nand(chip)->layout;
-	int i, j, ret;
+	int i, ret;
 	struct marvell_nfc_op nfc_op = {
 		.ndcb[0] = NDCB0_CMD_TYPE(TYPE_READ) |
 			   NDCB0_ADDR_CYC(marvell_nand->addr_cyc) |
@@ -1204,22 +1249,16 @@ static void marvell_nfc_hw_ecc_bch_read_chunk(struct nand_chip *chip, int chunk,
 	for (i = 0; i < data_len; i += FIFO_DEPTH * BCH_SEQ_READS) {
 		marvell_nfc_end_cmd(chip, NDSR_RDDREQ,
 				    "RDDREQ while draining FIFO (data)");
-		if (data) {
-			ioread32_rep(nfc->regs + NDDB, data,
-				     FIFO_REP(FIFO_DEPTH) * BCH_SEQ_READS);
-			data += FIFO_DEPTH * BCH_SEQ_READS;
-		} else {
-			for (j = 0; j < sizeof(u32); j++)
-				ioread32_rep(nfc->regs + NDDB, nfc->buf,
-					     FIFO_REP(FIFO_DEPTH));
-		}
+		marvell_nfc_xfer_data_in_pio(nfc, data,
+					     FIFO_DEPTH * BCH_SEQ_READS);
+		data += FIFO_DEPTH * BCH_SEQ_READS;
 	}
 
 	for (i = 0; i < oob_len; i += FIFO_DEPTH * BCH_SEQ_READS) {
 		marvell_nfc_end_cmd(chip, NDSR_RDDREQ,
 				    "RDDREQ while draining FIFO (OOB)");
-		ioread32_rep(nfc->regs + NDDB, oob,
-			     FIFO_REP(FIFO_DEPTH) * BCH_SEQ_READS);
+		marvell_nfc_xfer_data_in_pio(nfc, oob,
+					     FIFO_DEPTH * BCH_SEQ_READS);
 		oob += FIFO_DEPTH * BCH_SEQ_READS;
 	}
 }
@@ -1338,7 +1377,11 @@ static int marvell_nfc_hw_ecc_bch_read_oob_raw(struct mtd_info *mtd,
 static int marvell_nfc_hw_ecc_bch_read_oob(struct mtd_info *mtd,
 					   struct nand_chip *chip, int page)
 {
-	return chip->ecc.read_page(mtd, chip, NULL, true, page);
+	/* Invalidate page cache */
+	chip->pagebuf = -1;
+
+	return chip->ecc.read_page(mtd, chip, chip->buffers->databuf, true,
+				   page);
 }
 
 /* BCH write helpers */
@@ -1625,113 +1668,9 @@ static void marvell_nfc_parse_instructions(struct nand_chip *chip,
 	}
 }
 
-static void marvell_nfc_data_dma_isr(void *data)
-{
-	struct marvell_nfc *nfc = data;
-	struct dma_tx_state state;
-	enum dma_status status;
-
-	status = dmaengine_tx_status(nfc->dma_chan, nfc->dma_cookie, &state);
-	printk("dma isr (status %d)\n", status);
-	if (status != DMA_COMPLETE)
-		return;
-
-	complete(&nfc->complete);
-	dma_unmap_sg(nfc->dma_chan->device->dev, &nfc->sg, 1, nfc->dma_dir);
-}
-
-static int marvell_nfc_xfer_data_dma(struct marvell_nfc *nfc, bool reading,
-				     const void *buf, unsigned int len,
-				     unsigned int to_ms)
-{
-	struct dma_async_tx_descriptor *tx;
-	int ret;
-
-	len = ALIGN(len, 32); // todo check length aligned do not overflow when reading ?
-
-//	marvell_nfc_enable_dma(nfc);
-
-	/* Prepare DMA transfer */
-	nfc->sg.length = len;
-
-	if (reading)
-		nfc->dma_dir = DMA_FROM_DEVICE;
-	else
-		nfc->dma_dir = DMA_TO_DEVICE;
-
-	sg_init_one(&nfc->sg, buf, len);
-	dma_map_sg(nfc->dma_chan->device->dev, &nfc->sg, 1, nfc->dma_dir);
-	tx = dmaengine_prep_slave_sg(nfc->dma_chan, &nfc->sg, 1,
-				     reading ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV,
-				     DMA_PREP_INTERRUPT);
-	if (!tx) {
-		dev_err(nfc->dev, "Could not prepare DMA S/G list\n");
-		return -ENXIO;
-	}
-
-	tx->callback = marvell_nfc_data_dma_isr;
-	tx->callback_param = nfc;
-	nfc->dma_cookie = dmaengine_submit(tx);
-
-	/* Do the task and wait for it to finish */
-	init_completion(&nfc->complete);
-//	printk("[%d] NDSR: %08x\n", __LINE__, readl(nfc->regs + NDSR));
-	dma_async_issue_pending(nfc->dma_chan);
-	ret = wait_for_completion_timeout(&nfc->complete,
-					  msecs_to_jiffies(to_ms));
-//	printk("[%d] NDSR: %08x\n", __LINE__, readl(nfc->regs + NDSR));
-	if (!ret) {
-		dev_err(nfc->dev, "Timeout waiting for DMA to finish\n");
-		dma_unmap_sg(nfc->dma_chan->device->dev, &nfc->sg, 1,
-			     nfc->dma_dir);
-		dmaengine_terminate_all(nfc->dma_chan);
-		return -ETIMEDOUT;
-	}
-
-	marvell_nfc_disable_dma(nfc);
-
-	return 0;
-}
-
-static int marvell_nfc_xfer_data_in_pio(struct marvell_nfc *nfc, u8 *in,
-					unsigned int len)
-{
-	unsigned int last_len = len % FIFO_DEPTH;
-	unsigned int last_full_offset = round_down(len, FIFO_DEPTH);
-	int i;
-
-	for (i = 0; i < last_full_offset; i += FIFO_DEPTH)
-		ioread32_rep(nfc->regs + NDDB, in + i, FIFO_REP(FIFO_DEPTH));
-
-	if (last_len) {
-		ioread32_rep(nfc->regs + NDDB, nfc->buf, FIFO_REP(FIFO_DEPTH));
-		memcpy(in + last_full_offset, nfc->buf, last_len);
-	}
-
-	return 0;
-}
-
-static int marvell_nfc_xfer_data_out_pio(struct marvell_nfc *nfc, const u8 *out,
-					 unsigned int len)
-{
-	unsigned int last_len = len % FIFO_DEPTH;
-	unsigned int last_full_offset = round_down(len, FIFO_DEPTH);
-	int i;
-
-	for (i = 0; i < last_full_offset; i += FIFO_DEPTH)
-		iowrite32_rep(nfc->regs + NDDB, out + i, FIFO_REP(FIFO_DEPTH));
-
-	if (last_len) {
-		memcpy(nfc->buf, out + last_full_offset, last_len);
-		iowrite32_rep(nfc->regs + NDDB, nfc->buf, FIFO_REP(FIFO_DEPTH));
-	}
-
-	return 0;
-}
-
-static int marvell_nfc_xfer_data(struct nand_chip *chip,
-				 const struct nand_subop *subop,
-				 struct marvell_nfc_op *nfc_op)
+static int marvell_nfc_xfer_data_pio(struct nand_chip *chip,
+				     const struct nand_subop *subop,
+				     struct marvell_nfc_op *nfc_op)
 {
 	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
 	const struct nand_op_instr *instr = nfc_op->data_instr;
@@ -1741,26 +1680,17 @@ static int marvell_nfc_xfer_data(struct nand_chip *chip,
 	bool reading = (instr->type == NAND_OP_DATA_IN_INSTR);
 	int ret;
 
-
 	if (instr->ctx.data.force_8bit)
 		marvell_nfc_force_byte_access(chip, true);
 
 	if (reading) {
 		u8 *in = instr->ctx.data.buf.in + offset;
 
-		if (nfc->use_data_dma)
-			ret = marvell_nfc_xfer_data_dma(nfc, true, in, len,
-							nfc_op->rdy_timeout_ms);
-		else
-			ret = marvell_nfc_xfer_data_in_pio(nfc, in, len);
+		ret = marvell_nfc_xfer_data_in_pio(nfc, in, len);
 	} else {
 		const u8 *out = instr->ctx.data.buf.out + offset;
 
-		if (nfc->use_data_dma)
-			ret = marvell_nfc_xfer_data_dma(nfc, false, out, len,
-							nfc_op->rdy_timeout_ms);
-		else
-			ret = marvell_nfc_xfer_data_out_pio(nfc, out, len);
+		ret = marvell_nfc_xfer_data_out_pio(nfc, out, len);
 	}
 
 	if (instr->ctx.data.force_8bit)
@@ -1772,7 +1702,6 @@ static int marvell_nfc_xfer_data(struct nand_chip *chip,
 static int marvell_nfc_monolithic_access_exec(struct nand_chip *chip,
 					      const struct nand_subop *subop)
 {
-	struct marvell_nfc *nfc = to_marvell_nfc(chip->controller);
 	struct marvell_nfc_op nfc_op;
 	bool reading;
 	int ret;
@@ -1802,7 +1731,7 @@ static int marvell_nfc_monolithic_access_exec(struct nand_chip *chip,
 		cond_delay(nfc_op.rdy_delay_ns);
 	}
 
-	marvell_nfc_xfer_data(chip, subop, &nfc_op);
+	marvell_nfc_xfer_data_pio(chip, subop, &nfc_op);
 	ret = marvell_nfc_wait_cmdd(chip);
 	if (ret)
 		return ret;
@@ -1852,7 +1781,7 @@ static int marvell_nfc_read_id_type_exec(struct nand_chip *chip,
 
 	cond_delay(nfc_op.rdy_delay_ns);
 
-	marvell_nfc_xfer_data(chip, subop, &nfc_op);
+	marvell_nfc_xfer_data_pio(chip, subop, &nfc_op);
 	ret = marvell_nfc_wait_cmdd(chip);
 	if (ret)
 		return ret;
@@ -1892,7 +1821,7 @@ static int marvell_nfc_read_status_exec(struct nand_chip *chip,
 
 	cond_delay(nfc_op.rdy_delay_ns);
 
-	marvell_nfc_xfer_data(chip, subop, &nfc_op);
+	marvell_nfc_xfer_data_pio(chip, subop, &nfc_op);
 	ret = marvell_nfc_wait_cmdd(chip);
 	if (ret)
 		return ret;
@@ -2016,7 +1945,7 @@ static int marvell_nfc_naked_access_exec(struct nand_chip *chip,
 	if (ret)
 		return ret;
 
-	marvell_nfc_xfer_data(chip, subop, &nfc_op);
+	marvell_nfc_xfer_data_pio(chip, subop, &nfc_op);
 	ret = marvell_nfc_wait_cmdd(chip);
 	cond_delay(nfc_op.data_delay_ns);
 
@@ -2045,12 +1974,12 @@ static const struct nand_op_parser marvell_nfcv2_op_parser = NAND_OP_PARSER(
 		NAND_OP_PARSER_PAT_ADDR_ELEM(true, MAX_ADDRESS_CYC_NFCV2),
 		NAND_OP_PARSER_PAT_CMD_ELEM(true),
 		NAND_OP_PARSER_PAT_WAITRDY_ELEM(true),
-		NAND_OP_PARSER_PAT_DATA_IN_ELEM(false, MAX_CHUNK_SIZE_NFCV2)),
+		NAND_OP_PARSER_PAT_DATA_IN_ELEM(false, MAX_CHUNK_SIZE)),
 	NAND_OP_PARSER_PATTERN(
 		marvell_nfc_monolithic_access_exec,
 		NAND_OP_PARSER_PAT_CMD_ELEM(false),
 		NAND_OP_PARSER_PAT_ADDR_ELEM(false, MAX_ADDRESS_CYC_NFCV2),
-		NAND_OP_PARSER_PAT_DATA_OUT_ELEM(false, MAX_CHUNK_SIZE_NFCV2),
+		NAND_OP_PARSER_PAT_DATA_OUT_ELEM(false, MAX_CHUNK_SIZE),
 		NAND_OP_PARSER_PAT_CMD_ELEM(true),
 		NAND_OP_PARSER_PAT_WAITRDY_ELEM(true)),
 	/* Isolated commands (reset, erase, begin prog,...) */
@@ -2073,10 +2002,10 @@ static const struct nand_op_parser marvell_nfcv2_op_parser = NAND_OP_PARSER(
 		NAND_OP_PARSER_PAT_ADDR_ELEM(false, MAX_ADDRESS_CYC_NFCV2)),
 	NAND_OP_PARSER_PATTERN(
 		marvell_nfc_naked_access_exec,
-		NAND_OP_PARSER_PAT_DATA_IN_ELEM(false, MAX_CHUNK_SIZE_NFCV2)),
+		NAND_OP_PARSER_PAT_DATA_IN_ELEM(false, MAX_CHUNK_SIZE)),
 	NAND_OP_PARSER_PATTERN(
 		marvell_nfc_naked_access_exec,
-		NAND_OP_PARSER_PAT_DATA_OUT_ELEM(false, MAX_CHUNK_SIZE_NFCV2)),
+		NAND_OP_PARSER_PAT_DATA_OUT_ELEM(false, MAX_CHUNK_SIZE)),
 	NAND_OP_PARSER_PATTERN(
 		marvell_nfc_naked_waitrdy_exec,
 		NAND_OP_PARSER_PAT_WAITRDY_ELEM(false)),
@@ -2187,10 +2116,11 @@ static int marvell_nand_hw_ecc_ctrl_init(struct mtd_info *mtd,
 	const struct marvell_hw_ecc_layout *l;
 	int i;
 
-	if (!nfc->caps->is_nfcv2 && (mtd->writesize > MAX_CHUNK_SIZE_NFCV1)) {
+	if (!nfc->caps->is_nfcv2 &&
+	    (mtd->writesize + mtd->oobsize > MAX_CHUNK_SIZE)) {
 		dev_err(nfc->dev,
 			"NFCv1: writesize (%d) cannot be bigger than a chunk (%d)\n",
-			mtd->writesize, MAX_CHUNK_SIZE_NFCV1);
+			mtd->writesize, MAX_CHUNK_SIZE - mtd->oobsize);
 		return -ENOTSUPP;
 	}
 
@@ -2688,6 +2618,9 @@ static void marvell_nand_chips_cleanup(struct marvell_nfc *nfc)
 static int marvell_nfc_init(struct marvell_nfc *nfc)
 {
 	struct device_node *np = nfc->dev->of_node;
+	struct platform_device *pdev = container_of(nfc->dev,
+						    struct platform_device,
+						    dev);
 	u32 setup = 0;
 
 	/*
@@ -2730,7 +2663,8 @@ static int marvell_nfc_init(struct marvell_nfc *nfc)
 
 	/* Configure the DMA if appropriate */
 	if (nfc->caps->use_dma) {
-		struct dma_slave_config	config = {};
+		struct dma_slave_config config = {};
+		struct resource *r;
 		dma_cap_mask_t mask;
 		struct pxad_param param;
 		int ret;
@@ -2745,10 +2679,16 @@ static int marvell_nfc_init(struct marvell_nfc *nfc)
 		if (ret)
 			return ret;
 
+		r = platform_get_resource(pdev, IORESOURCE_DMA, 0);
+		if (!r) {
+			dev_err(nfc->dev, "No resource defined for data DMA\n");
+			return -ENXIO;
+		}
+
+		param.drcmr = r->start;
+		param.prio = PXAD_PRIO_LOWEST;
 		dma_cap_zero(mask);
 		dma_cap_set(DMA_SLAVE, mask);
-		param.prio = PXAD_PRIO_LOWEST;
-		param.drcmr = nfc->drcmr_dat;
 		nfc->dma_chan =
 			dma_request_slave_channel_compat(mask, pxad_filter_fn,
 							 &param, nfc->dev,
@@ -2759,10 +2699,14 @@ static int marvell_nfc_init(struct marvell_nfc *nfc)
 			return -ENODEV;
 		}
 
+		r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		if (!r)
+			return -ENXIO;
+
 		config.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
 		config.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES;
-		config.src_addr = nfc->mmio_phys + NDDB;
-		config.dst_addr = nfc->mmio_phys + NDDB;
+		config.src_addr = r->start + NDDB;
+		config.dst_addr = r->start + NDDB;
 		config.src_maxburst = 32;
 		config.dst_maxburst = 32;
 		ret = dmaengine_slave_config(nfc->dma_chan, &config);
@@ -2770,6 +2714,16 @@ static int marvell_nfc_init(struct marvell_nfc *nfc)
 			dev_err(nfc->dev, "Failed to configure DMA channel\n");
 			return ret;
 		}
+
+		/*
+		 * DMA must act on length multiple of 32 and this length may be
+		 * bigger than the destination buffer. Use this buffer instead
+		 * for DMA transfers and then copy the desired amount of data to
+		 * the provided buffer.
+		 */
+		nfc->dma_buf = kmalloc(MAX_CHUNK_SIZE, GFP_DMA);
+		if (!nfc->dma_buf)
+			return -ENOMEM;
 	}
 
 	writel_relaxed(NDCR_RA_START | NDCR_ALL_INT | NDCR_ND_ARB_EN | setup,
@@ -2799,7 +2753,6 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	nfc->regs = devm_ioremap_resource(dev, r);
-	nfc->mmio_phys = r->start;
 	if (IS_ERR(nfc->regs))
 		return PTR_ERR(nfc->regs);
 
@@ -2822,7 +2775,7 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 	ret = devm_request_irq(dev, irq, marvell_nfc_isr,
 			       0, "marvell-nfc", nfc);
 	if (ret)
-		goto out_clk_unprepare;
+		goto unprepare_clk;
 
 	/* Get NAND controller capabilities */
 	if (pdev->id_entry)
@@ -2833,33 +2786,23 @@ static int marvell_nfc_probe(struct platform_device *pdev)
 	if (!nfc->caps) {
 		dev_err(dev, "Could not retrieve NFC caps\n");
 		ret = -EINVAL;
-		goto out_clk_unprepare;
+		goto unprepare_clk;
 	}
 
 	/* Init the controller and then probe the chips */
 	ret = marvell_nfc_init(nfc);
 	if (ret)
-		goto out_clk_unprepare;
-
-	if (nfc->caps->use_dma) {
-		r = platform_get_resource(pdev, IORESOURCE_DMA, 0);
-		if (!r) {
-			dev_err(dev, "No resource defined for data DMA\n");
-			ret = -ENXIO;
-			goto out_clk_unprepare;
-		}
-		nfc->drcmr_dat = r->start;
-	}
+		goto unprepare_clk;
 
 	platform_set_drvdata(pdev, nfc);
 
 	ret = marvell_nand_chips_init(dev, nfc);
 	if (ret)
-		goto out_clk_unprepare;
+		goto unprepare_clk;
 
 	return 0;
 
-out_clk_unprepare:
+unprepare_clk:
 	clk_disable_unprepare(nfc->ecc_clk);
 
 	return ret;
