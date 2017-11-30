@@ -139,8 +139,8 @@ static struct mtd_partition colibri_nand_partitions[] = {
 
 static struct pxa3xx_nand_platform_data colibri_nand_info = {
 	.keep_config	= 1,
-	.parts[0]	= colibri_nand_partitions,
-	.nr_parts[0]	= ARRAY_SIZE(colibri_nand_partitions),
+	.parts		= colibri_nand_partitions,
+	.nr_parts	= ARRAY_SIZE(colibri_nand_partitions),
 };
 
 void __init colibri_pxa3xx_init_nand(void)

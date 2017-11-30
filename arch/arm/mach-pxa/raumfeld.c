@@ -347,8 +347,8 @@ static struct mtd_partition raumfeld_nand_partitions[] = {
 
 static struct pxa3xx_nand_platform_data raumfeld_nand_info = {
 	.keep_config	= 1,
-	.parts[0]	= raumfeld_nand_partitions,
-	.nr_parts[0]	= ARRAY_SIZE(raumfeld_nand_partitions),
+	.parts		= raumfeld_nand_partitions,
+	.nr_parts	= ARRAY_SIZE(raumfeld_nand_partitions),
 };
 
 /**
