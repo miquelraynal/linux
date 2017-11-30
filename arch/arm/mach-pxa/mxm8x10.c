@@ -389,9 +389,7 @@ static struct mtd_partition mxm_8x10_nand_partitions[] = {
 };
 
 static struct pxa3xx_nand_platform_data mxm_8x10_nand_info = {
-	.enable_arbiter	= 1,
 	.keep_config	= 1,
-	.num_cs		= 1,
 	.parts[0]	= mxm_8x10_nand_partitions,
 	.nr_parts[0]	= ARRAY_SIZE(mxm_8x10_nand_partitions)
 };

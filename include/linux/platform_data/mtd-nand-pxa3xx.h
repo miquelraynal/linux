@@ -19,17 +19,8 @@
 #define NUM_CHIP_SELECT		(2)
 struct pxa3xx_nand_platform_data {
 
-	/* the data flash bus is shared between the Static Memory
-	 * Controller and the Data Flash Controller,  the arbiter
-	 * controls the ownership of the bus
-	 */
-	int	enable_arbiter;
-
 	/* allow platform code to keep OBM/bootloader defined NFC config */
 	int	keep_config;
-
-	/* indicate how many chip selects will be used */
-	int	num_cs;
 
 	/* use an flash-based bad block table */
 	bool	flash_bbt;
