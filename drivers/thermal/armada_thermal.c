@@ -213,11 +213,12 @@ static bool armada_is_valid(struct armada_thermal_priv *priv)
 }
 
 static int armada_get_temp(struct thermal_zone_device *thermal,
-			  int *temp)
+			   int *temperature)
 {
 	struct armada_thermal_priv *priv = thermal->devdata;
 	u32 reg, div;
 	s64 sample, b, m;
+	u64 tmp;
 
 	/* Valid check */
 	if (priv->data->is_valid && !priv->data->is_valid(priv)) {
@@ -240,11 +241,12 @@ static int armada_get_temp(struct thermal_zone_device *thermal,
 	div = priv->data->coef_div;
 
 	if (priv->data->inverted)
-		*temp = (m * sample) - b;
+		tmp = (m * sample) - b;
 	else
-		*temp = b - (m * sample);
+		tmp = b - (m * sample);
 
-	do_div(*temp, div);
+	do_div(tmp, div);
+	*temperature = (int)tmp;
 
 	return 0;
 }
