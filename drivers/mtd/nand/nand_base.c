@@ -1236,6 +1236,18 @@ static int nand_setup_data_interface(struct nand_chip *chip, int chipnr)
 				tmode_param);
 		if (ret)
 			goto err;
+
+		ret = chip->onfi_get_features(mtd, chip,
+					      ONFI_FEATURE_ADDR_TIMING_MODE,
+					      tmode_param);
+		if (ret)
+			goto err;
+
+		if (tmode_param[0] != chip->onfi_timing_mode_default) {
+			pr_warn("timings mode %d not acknowledged by the NAND chip\n",
+				chip->onfi_timing_mode_default);
+			goto err;
+		}
 	}
 
 	ret = chip->setup_data_interface(mtd, chipnr, &chip->data_interface);
