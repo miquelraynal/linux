@@ -2413,6 +2413,9 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 	 */
 	marvell_nand->ndtr0 = readl_relaxed(nfc->regs + NDTR0);
 	marvell_nand->ndtr1 = readl_relaxed(nfc->regs + NDTR1);
+	printk("Timing registers from Bootloader:\n");
+	printk("-  NDTR0: 0x%08x\n", marvell_nand->ndtr0);
+	printk("-  NDTR1: 0x%08x\n", marvell_nand->ndtr1);
 
 	chip->options |= NAND_BUSWIDTH_AUTO;
 	ret = nand_scan_ident(mtd, marvell_nand->nsels, NULL);
