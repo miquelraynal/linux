@@ -68,6 +68,9 @@
 #define NDCR_DMA_EN		BIT(29)
 #define NDCR_ECC_EN		BIT(30)
 #define NDCR_SPARE_EN		BIT(31)
+#define NDCR_GENERIC_FIELDS_MASK (~(NDCR_ND_RUN | NDCR_RA_START |	\
+				    NDCR_PAGE_SZ(2048) |		\
+				    NDCR_DWIDTH_M | NDCR_DWIDTH_C))
 
 /* NAND interface timing parameter 0 register */
 #define NDTR0			0x04
@@ -115,6 +118,7 @@
 #define NDCB0_CMD1(x)		((x & 0xFF) << 0)
 #define NDCB0_CMD2(x)		((x & 0xFF) << 8)
 #define NDCB0_ADDR_CYC(x)	((x & 0x7) << 16)
+#define NDCB0_ADDR_GET_NUM_CYC(x) (((x) >> 16) & 0x7)
 #define NDCB0_DBC		BIT(19)
 #define NDCB0_CMD_TYPE(x)	((x & 0x7) << 21)
 #define NDCB0_CSEL		BIT(24)
@@ -558,12 +562,9 @@ static void marvell_nfc_send_cmd(struct nand_chip *chip,
 	 * fields are used (only available on NFCv2).
 	 */
 	if (nfc_op->ndcb[0] & NDCB0_LEN_OVRD ||
-	    (nfc_op->ndcb[0] & NDCB0_ADDR_CYC(6)) == NDCB0_ADDR_CYC(6)) {
-		if (nfc->caps->is_nfcv2)
+	    NDCB0_ADDR_GET_NUM_CYC(nfc_op->ndcb[0]) >= 6) {
+		if (!WARN_ON_ONCE(!nfc->caps->is_nfcv2))
 			writel(nfc_op->ndcb[3], nfc->regs + NDCB0);
-		else
-			dev_err(nfc->dev,
-				"NDCB3 does not exist on NFCv1 and should not be written\n");
 	}
 }
 
@@ -588,7 +589,7 @@ static int marvell_nfc_end_cmd(struct nand_chip *chip, int flag,
 
 	/*
 	 * DMA function uses this helper to poll on CMDD bits without wanting
-	 * them to be bleared.
+	 * them to be cleared.
 	 */
 	if (nfc->use_dma && (readl_relaxed(nfc->regs + NDCR) & NDCR_DMA_EN))
 		return 0;
@@ -650,14 +651,12 @@ static void marvell_nfc_select_chip(struct mtd_info *mtd, int die_nr)
 	 * marvell,nand-keep-config; in that case ->ndtr0 and ->ndtr1 from the
 	 * marvell_nand structure are supposedly empty.
 	 */
-	if (marvell_nand->ndtr0 && marvell_nand->ndtr1) {
-		writel_relaxed(marvell_nand->ndtr0, nfc->regs + NDTR0);
-		writel_relaxed(marvell_nand->ndtr1, nfc->regs + NDTR1);
-	}
+	writel_relaxed(marvell_nand->ndtr0, nfc->regs + NDTR0);
+	writel_relaxed(marvell_nand->ndtr1, nfc->regs + NDTR1);
 
 	/* Reset the NDCR register to a clean state for this particular chip */
-	if (marvell_nand->ndcr)
-		writel_relaxed(marvell_nand->ndcr, nfc->regs + NDCR);
+	writel_relaxed((readl(nfc->regs + NDCR) & NDCR_GENERIC_FIELDS_MASK) |
+		       marvell_nand->ndcr, nfc->regs + NDCR);
 
 	/* Also reset the interrupt status register */
 	marvell_nfc_clear_int(nfc, NDCR_ALL_INT);
@@ -2014,13 +2013,13 @@ static int marvell_nand_ooblayout_ecc(struct mtd_info *mtd, int section,
 	struct nand_chip *chip = mtd_to_nand(mtd);
 	const struct marvell_hw_ecc_layout *lt = to_marvell_nand(chip)->layout;
 
-	if (section >= lt->nchunks)
+
+	if (section)
 		return -ERANGE;
 
-	oobregion->offset = (lt->full_chunk_cnt * lt->spare_bytes) +
-		section * lt->ecc_bytes;
-	oobregion->length = section < lt->full_chunk_cnt ?
-		lt->ecc_bytes : lt->last_ecc_bytes;
+	oobregion->length = (lt->full_chunk_cnt * lt->ecc_bytes) +
+		lt->last_ecc_bytes;
+	oobregion->offset = mtd->oobsize - oobregion->length;
 
 	return 0;
 }
@@ -2031,26 +2030,20 @@ static int marvell_nand_ooblayout_free(struct mtd_info *mtd, int section,
 	struct nand_chip *chip = mtd_to_nand(mtd);
 	const struct marvell_hw_ecc_layout *lt = to_marvell_nand(chip)->layout;
 
-	if (section >= lt->nchunks)
+	if (section)
 		return -ERANGE;
 
-	oobregion->offset = section * lt->spare_bytes;
-	oobregion->length = section < lt->full_chunk_cnt ?
-		lt->spare_bytes : lt->last_spare_bytes;
+	/*
+	 * Bootrom looks in bytes 0 & 5 for bad blocks for the
+	 * 4KB page / 4bit BCH combination.
+	 */
+	if (mtd->writesize == SZ_4K && lt->data_bytes == SZ_2K)
+		oobregion->offset = 6;
+	else
+		oobregion->offset = 2;
 
-	if (!section) {
-		/*
-		 * Bootrom looks in bytes 0 & 5 for bad blocks for the
-		 * 4KB page / 4bit BCH combination.
-		 */
-		if (mtd->writesize == SZ_4K && lt->data_bytes == SZ_2K) {
-			oobregion->offset += 6;
-			oobregion->length -= 6;
-		} else {
-			oobregion->offset += 2;
-			oobregion->length -= 2;
-		}
-	}
+	oobregion->length = (lt->full_chunk_cnt * lt->spare_bytes) +
+		lt->last_spare_bytes - oobregion->offset;
 
 	return 0;
 }
@@ -2267,9 +2260,6 @@ static int marvell_nfc_setup_data_interface(struct mtd_info *mtd, int chipnr,
 		NDTR1_WAIT_MODE |
 		NDTR1_TR(nfc_tmg.tR);
 
-	writel_relaxed(marvell_nand->ndtr0, nfc->regs + NDTR0);
-	writel_relaxed(marvell_nand->ndtr1, nfc->regs + NDTR1);
-
 	return 0;
 }
 
@@ -2295,16 +2285,13 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 	 */
 	if (pdata) {
 		nsels = 1;
-	} else if (nfc->caps->legacy_of_bindings) {
-		if (!of_get_property(np, "num-cs", &nsels)) {
-			dev_err(dev, "missing num-cs property\n");
-			return -EINVAL;
-		}
-	} else {
-		if (!of_get_property(np, "reg", &nsels)) {
-			dev_err(dev, "missing reg property\n");
-			return -EINVAL;
-		}
+	} else if (nfc->caps->legacy_of_bindings &&
+		   !of_get_property(np, "num-cs", &nsels)) {
+		dev_err(dev, "missing num-cs property\n");
+		return -EINVAL;
+	} else if (!of_get_property(np, "reg", &nsels)) {
+		dev_err(dev, "missing reg property\n");
+		return -EINVAL;
 	}
 
 	if (!pdata)
@@ -2420,6 +2407,13 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 	 */
 	chip->ecc.mode = NAND_ECC_HW;
 
+	/*
+	 * Save a reference value for timing registers before
+	 * ->setup_data_interface() is called.
+	 */
+	marvell_nand->ndtr0 = readl_relaxed(nfc->regs + NDTR0);
+	marvell_nand->ndtr1 = readl_relaxed(nfc->regs + NDTR1);
+
 	chip->options |= NAND_BUSWIDTH_AUTO;
 	ret = nand_scan_ident(mtd, marvell_nand->nsels, NULL);
 	if (ret) {
@@ -2440,17 +2434,35 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 		chip->bbt_md = &bbt_mirror_descr;
 	}
 
+
+	/* Save the chip-specific fields of NDCR */
+	marvell_nand->ndcr = NDCR_PAGE_SZ(mtd->writesize);
+	if (chip->options & NAND_BUSWIDTH_16)
+		marvell_nand->ndcr |= NDCR_DWIDTH_M | NDCR_DWIDTH_C;
+
 	/*
-	 * With RA_START bit set in NDCR, columns takes two address cycles. This
-	 * means addressing a chip with more than 256 pages needs a fifth
-	 * address cycle. Addressing a chip using CS 2 or 3 should also needs
-	 * this additional cycle but due to inconsistance in the documentation
-	 * and lack of hardware to test this situation, this case has been
-	 * dropped and is not supported by this driver.
+	 * On small page NANDs, only one cycle is needed to pass the
+	 * column address.
 	 */
-	marvell_nand->addr_cyc = 4;
+	if (mtd->writesize <= 512) {
+		marvell_nand->addr_cyc = 1;
+	} else {
+		marvell_nand->addr_cyc = 2;
+		marvell_nand->ndcr |= NDCR_RA_START;
+	}
+
+	/*
+	 * Now add the number of cycles needed to pass the row
+	 * address.
+	 *
+	 * Addressing a chip using CS 2 or 3 should also need the third row
+	 * cycle but due to inconsistance in the documentation and lack of
+	 * hardware to test this situation, this case is not supported.
+	 */
 	if (chip->options & NAND_ROW_ADDR_3)
-		marvell_nand->addr_cyc = 5;
+		marvell_nand->addr_cyc += 3;
+	else
+		marvell_nand->addr_cyc += 2;
 
 	if (pdata) {
 		chip->ecc.size = pdata->ecc_step_size;
@@ -2499,17 +2511,6 @@ static int marvell_nand_chip_init(struct device *dev, struct marvell_nfc *nfc,
 			return -ENOMEM;
 		}
 	}
-
-	/*
-	 * Save a reference value of NDCR for each NAND chip switch, adapt page
-	 * size and bus width.
-	 */
-	marvell_nand->ndcr = readl_relaxed(nfc->regs + NDCR);
-	marvell_nand->ndcr &= ~(NDCR_ND_RUN | NDCR_DWIDTH_M | NDCR_DWIDTH_C |
-				NDCR_PAGE_SZ(2048));
-	marvell_nand->ndcr |= NDCR_PAGE_SZ(mtd->writesize);
-	if (chip->options & NAND_BUSWIDTH_16)
-		marvell_nand->ndcr |= NDCR_DWIDTH_M | NDCR_DWIDTH_C;
 
 	ret = nand_scan_tail(mtd);
 	if (ret) {
@@ -2701,10 +2702,8 @@ static int marvell_nfc_init(struct marvell_nfc *nfc)
 	 * SPARE_EN bit must always be set or ECC bytes will not be at the same
 	 * offset in the read page and this will fail the protection.
 	 */
-	writel_relaxed(NDCR_RA_START | NDCR_ALL_INT | NDCR_ND_ARB_EN |
-		       NDCR_SPARE_EN | (nfc->caps->is_nfcv2 ?
-					0 : NDCR_RD_ID_CNT(NFCV1_READID_LEN)),
-		       nfc->regs + NDCR);
+	writel_relaxed(NDCR_ALL_INT | NDCR_ND_ARB_EN | NDCR_SPARE_EN |
+		       NDCR_RD_ID_CNT(NFCV1_READID_LEN), nfc->regs + NDCR);
 	writel_relaxed(0xFFFFFFFF, nfc->regs + NDSR);
 	writel_relaxed(0, nfc->regs + NDECCCTRL);
 
