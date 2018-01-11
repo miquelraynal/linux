@@ -1008,11 +1008,25 @@ static int marvell_nfc_hw_ecc_hmg_read_page(struct mtd_info *mtd,
 static int marvell_nfc_hw_ecc_hmg_read_oob_raw(struct mtd_info *mtd,
 					       struct nand_chip *chip, int page)
 {
+	int ret, i, j;
+
 	/* Invalidate page cache */
 	chip->pagebuf = -1;
 
-	return marvell_nfc_hw_ecc_hmg_do_read_page(chip, chip->data_buf,
-						   chip->oob_poi, true, page);
+	ret = marvell_nfc_hw_ecc_hmg_do_read_page(chip, chip->data_buf,
+						  chip->oob_poi, true, page);
+
+#define BYTES_PER_L 32
+	printk("OOB from page %d:\n", page);
+	for (i = 0; i < mtd->oobsize;) {
+		printk("%02x: ", i / BYTES_PER_L);
+		for (j = 0; j < BYTES_PER_L; j++)
+			printk(KERN_CONT "%02x ", chip->oob_poi[i + j]);
+		printk(KERN_CONT "\n");
+		i += BYTES_PER_L;
+	}
+
+	return ret;
 }
 
 /* Hamming write helpers */
