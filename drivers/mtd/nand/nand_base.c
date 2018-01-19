@@ -1267,7 +1267,8 @@ static int nand_setup_data_interface(struct nand_chip *chip, int chipnr)
 	return 0;
 
 err_reset_chip:
-	onfi_fill_data_interface(chip, NAND_SDR_IFACE, 0);
+	/* Fallback to timing mode 0 */
+	nand_reset_data_interface(chip, chipnr);
 	chip->select_chip(mtd, chipnr);
 	nand_reset_op(chip);
 	chip->select_chip(mtd, -1);
