@@ -64,6 +64,10 @@ static int micron_nand_onfi_init(struct nand_chip *chip)
 		chip->setup_read_retry = micron_nand_setup_read_retry;
 	}
 
+	if (p->support_setting_features) {
+		set_bit(ONFI_FEATURE_ADDR_TIMING_MODE, p->feature_list);
+		set_bit(ONFI_FEATURE_ADDR_READ_RETRY, p->feature_list);
+	}
 
 	return 0;
 }
