@@ -307,16 +307,16 @@ int onfi_fill_data_interface(struct nand_chip *chip,
 	 * These information are part of the ONFI parameter page.
 	 */
 	if (chip->onfi_version) {
-		struct nand_onfi_params *params = &chip->onfi_params;
+		struct nand_parameters *params = &chip->parameters;
 		struct nand_sdr_timings *timings = &iface->timings.sdr;
 
 		/* microseconds -> picoseconds */
-		timings->tPROG_max = 1000000ULL * le16_to_cpu(params->t_prog);
-		timings->tBERS_max = 1000000ULL * le16_to_cpu(params->t_bers);
-		timings->tR_max = 1000000ULL * le16_to_cpu(params->t_r);
+		timings->tPROG_max = 1000000ULL * params->t_prog;
+		timings->tBERS_max = 1000000ULL * params->t_bers;
+		timings->tR_max = 1000000ULL * params->t_r;
 
 		/* nanoseconds -> picoseconds */
-		timings->tCCS_min = 1000UL * le16_to_cpu(params->t_ccs);
+		timings->tCCS_min = 1000UL * params->t_ccs;
 	}
 
 	return 0;

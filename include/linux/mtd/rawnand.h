@@ -429,6 +429,20 @@ struct nand_jedec_params {
 	__le16 crc;
 } __packed;
 
+struct nand_parameters {
+	/* Generic parameters */
+	char model[20];
+	/* ONFI parameters */
+	bool support_setting_features;
+	u16 t_prog;
+	u16 t_bers;
+	u16 t_r;
+	u16 t_ccs;
+	u16 async_timing_mode;
+	u16 vendor_revision;
+	u8 vendor[88];
+} __packed;
+
 /* The maximum expected count of bytes in the NAND ID sequence */
 #define NAND_MAX_ID_LEN 8
 
@@ -1161,10 +1175,6 @@ int nand_op_parser_exec_op(struct nand_chip *chip,
  *			non 0 if ONFI supported.
  * @jedec_version:	[INTERN] holds the chip JEDEC version (BCD encoded),
  *			non 0 if JEDEC supported.
- * @onfi_params:	[INTERN] holds the ONFI page parameter when ONFI is
- *			supported, 0 otherwise.
- * @jedec_params:	[INTERN] holds the JEDEC parameter page when JEDEC is
- *			supported, 0 otherwise.
  * @max_bb_per_die:	[INTERN] the max number of bad blocks each die of a
  *			this nand device will encounter their life times.
  * @blocks_per_die:	[INTERN] The number of PEBs in a die
@@ -1245,10 +1255,7 @@ struct nand_chip {
 	struct nand_id id;
 	int onfi_version;
 	int jedec_version;
-	union {
-		struct nand_onfi_params	onfi_params;
-		struct nand_jedec_params jedec_params;
-	};
+	struct nand_parameters parameters;
 	u16 max_bb_per_die;
 	u32 blocks_per_die;
 
@@ -1535,26 +1542,13 @@ struct platform_nand_data {
 	struct platform_nand_ctrl ctrl;
 };
 
-/* return the supported features. */
-static inline int onfi_feature(struct nand_chip *chip)
-{
-	return chip->onfi_version ? le16_to_cpu(chip->onfi_params.features) : 0;
-}
-
 /* return the supported asynchronous timing mode. */
 static inline int onfi_get_async_timing_mode(struct nand_chip *chip)
 {
 	if (!chip->onfi_version)
 		return ONFI_TIMING_MODE_UNKNOWN;
-	return le16_to_cpu(chip->onfi_params.async_timing_mode);
-}
 
-/* return the supported synchronous timing mode. */
-static inline int onfi_get_sync_timing_mode(struct nand_chip *chip)
-{
-	if (!chip->onfi_version)
-		return ONFI_TIMING_MODE_UNKNOWN;
-	return le16_to_cpu(chip->onfi_params.src_sync_timing_mode);
+	return chip->parameters.async_timing_mode;
 }
 
 int onfi_fill_data_interface(struct nand_chip *chip,
@@ -1589,13 +1583,6 @@ static inline int nand_opcode_8bits(unsigned int command)
 		break;
 	}
 	return 0;
-}
-
-/* return the supported JEDEC features. */
-static inline int jedec_feature(struct nand_chip *chip)
-{
-	return chip->jedec_version ? le16_to_cpu(chip->jedec_params.features)
-		: 0;
 }
 
 /* get timing characteristics from ONFI timing mode. */
