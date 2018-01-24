@@ -20,6 +20,21 @@ Required properties:
   to "control LSB/control 0" with size of 8 (current binding). All other
   compatibles must point to "control LSB/control 0" with size of 8.
 
+Optionnal properties:
+
+- interrupts: Should contain interrupt for thermal system
+or
+- interrupts-extended: Should contain parent node and interrupt for
+                       thermal system (relevant for devices with irq-chip).
+- threshold: Temperature threshold in Celsius, the threshold +/- calculated
+             hysteresis (formula below) define the upper and lower watermark
+             which when crossing, an interrupt will be asserted.
+- hysteresis: Valid values are 0..3, following is upper/lower watermark
+              calculation:
+              high/low watermark = threshold +/- 0.4761 * 2^(hysteresis + 2).
+              Following are the corresponding degrees corresponding to
+              hysteresis value: 0=>1.9, 1=>3.8,  2=>7.6, 3=>15.2
+
 Examples:
 
 	/* Legacy bindings */
@@ -27,10 +42,16 @@ Examples:
 		compatible = "marvell,armada370-thermal";
 		reg = <0xd0018300 0x4
 		       0xd0018304 0x4>;
+		interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
+		threshold = <100>;
+		hysteresis = <2>;
 	};
 
 	ap_thermal: thermal@6f8084 {
 		compatible = "marvell,armada-ap806-thermal";
 		reg = <0x6f808C 0x4>,
 		      <0x6f8084 0x8>;
+		interrupts-extended = <&sei 37>;
+		threshold = <100>;
+		hysteresis = <2>;
 	};
