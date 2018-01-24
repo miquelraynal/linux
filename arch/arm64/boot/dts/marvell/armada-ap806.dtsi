@@ -291,6 +291,7 @@
 				reg = <0x6f808C 0x4>,
 				      <0x6f8084 0x8>,
 				      <0x6f8100 0x20>;
+				interrupts-extended = <&sei 18>;
 				threshold = <100>;
 				hysteresis = <2>;
 			};
