@@ -437,7 +437,12 @@
 
 			thermal@e8078 {
 				compatible = "marvell,armada380-thermal";
-				reg = <0xe4078 0x4>, <0xe4074 0x4>;
+				reg = <0xe4078 0x4>,
+				      <0xe4074 0x4>,
+				      <0xe4100 0x20>;
+				interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
+				threshold = <100>;
+				hysteresis = <2>;
 				status = "okay";
 			};
 		};
