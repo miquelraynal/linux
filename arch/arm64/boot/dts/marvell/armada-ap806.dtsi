@@ -163,7 +163,7 @@
 			};
 
 			sei: interrupt-controller@3f0200 {
-				compatible = "marvell,sei";
+				compatible = "marvell,armada-8k-sei";
 				reg = <0x3f0200 0x30>;
 				#interrupt-cells = <1>;
 				#size-cells = <1>;
