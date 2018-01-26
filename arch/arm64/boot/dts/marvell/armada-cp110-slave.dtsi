@@ -184,12 +184,14 @@
 
 			cps_thermal: thermal@400078 {
 				compatible = "marvell,armada-cp110-thermal";
-				reg = <0x400078 0x4>,
-				      <0x400070 0x8>,
-				      <0x400100 0x20>;
+				reg = <0x400078 0x4>, <0x400070 0x8>;
+				marvell,dfx-system-controller = <&cps_dfx_syscon>;
 				interrupts-extended = <&sei 37>;
-				threshold = <100>;
-				hysteresis = <2>;
+			};
+
+			cps_dfx_syscon: system-controller@0x400100 {
+				compatible = "syscon", "simple-mfd";
+				reg = <0x400100 0x20>;
 			};
 
 			cps_syscon0: system-controller@440000 {
