@@ -25,9 +25,10 @@
 #include <linux/thermal.h>
 #include <linux/iopoll.h>
 #include <linux/interrupt.h>
+#include <linux/mfd/syscon.h>
+#include <linux/regmap.h>
 
-#define MCELSIUS(t)			(t * 1000)
-#define CELSIUS(t)			(t / 1000)
+#define TO_MCELSIUS(c)			(c * 1000)
 
 /* Thermal Manager Control and Status Register */
 #define PMU_TDC0_SW_RST_MASK		(0x1 << 1)
@@ -63,6 +64,7 @@
 /* EXT_TSEN refers to the external temperature sensors, out of the AP */
 #define CONTROL1_EXT_TSEN_SW_RESET	BIT(7)
 #define CONTROL1_EXT_TSEN_HW_RESETn	BIT(8)
+#define CONTROL1_EXT_TSEN_INT_EN	BIT(25) //todo: check this is always valid
 
 #define STATUS_POLL_PERIOD_US		1000
 #define STATUS_POLL_TIMEOUT_US		100000
@@ -75,7 +77,7 @@ struct armada_thermal_priv {
 	void __iomem *status;
 	void __iomem *control0;
 	void __iomem *control1;
-	void __iomem *dfx;
+	struct regmap *dfx;
 	struct armada_thermal_data *data;
 };
 
@@ -97,160 +99,19 @@ struct armada_thermal_data {
 	/* Register shift and mask to access the sensor temperature */
 	unsigned int temp_shift;
 	unsigned int temp_mask;
+	unsigned int thresh_shift;
+	unsigned int hyst_shift;
+	unsigned int hyst_mask;
 	u32 is_valid_bit;
 	bool needs_control0;
-	bool dfx_interrupt;
+
+	/* DFX syscon access */
+	unsigned int dfx_irq_cause_reg;
+	unsigned int dfx_irq_mask_reg;
+	unsigned int dfx_overheat_irq;
+	unsigned int dfx_server_irq_mask_reg;
+	unsigned int dfx_server_irq_en;
 };
-
-inline unsigned int tsen_thresh_val_calc(unsigned int celsius_temp,
-					 struct armada_thermal_data *data)
-{
-	int thresh_val;
-
-	thresh_val = ((MCELSIUS(celsius_temp) * data->coef_div) +
-		      data->coef_b) / data->coef_m;
-
-	return thresh_val & data->temp_mask;
-}
-
-inline unsigned int tsen_thresh_celsius_calc(int thresh_val,
-					     int hyst,
-					     struct armada_thermal_data *data)
-{
-	unsigned int mcelsius_temp;
-
-	mcelsius_temp = (((data->coef_m * (thresh_val + hyst)) -
-			  data->coef_b) / data->coef_div);
-
-	return CELSIUS(mcelsius_temp);
-}
-
-inline unsigned int ap806_thresh_val_calc(unsigned int celsius_temp,
-					  struct armada_thermal_data *data)
-{
-	int thresh_val;
-
-	thresh_val = (int)((MCELSIUS(celsius_temp) * data->coef_div) -
-			   data->coef_b) / (int)data->coef_m;
-
-	/*
-	 * TSEN output format is signed as a 2s complement number
-	 * ranging from-512 to +511. when MSB is set, need to
-	 * calculate the complement number
-	 */
-	if (thresh_val < 0)
-		thresh_val += AP806_TSEN_OUTPUT_COMP;
-
-	return thresh_val & data->temp_mask;
-}
-
-inline unsigned int ap806_thresh_celsius_calc(int thresh_val, int hyst,
-					      struct armada_thermal_data *data)
-{
-	unsigned int mcelsius_temp;
-
-	/*
-	 * This calculation is the opposite to the calculation done in
-	 * ap806_thresh_val_calc(). In order to get the right result,
-	 * need to revert the 2s complement calculation,
-	 * which occurs when threshold bigger then TSEN max value(511).
-	 */
-	if (thresh_val >= AP806_TSEN_OUTPUT_MSB)
-		thresh_val -= AP806_TSEN_OUTPUT_COMP;
-
-	mcelsius_temp = (((data->coef_m * (thresh_val + hyst)) +
-			  data->coef_b) / data->coef_div);
-
-	return CELSIUS(mcelsius_temp);
-}
-
-static void tsen_temp_set_threshold(struct platform_device *pdev,
-				    struct armada_thermal_priv *priv)
-{
-	int temp, reg, hyst;
-	unsigned int thresh;
-	struct armada_thermal_data *data = priv->data;
-	struct device_node *np = pdev->dev.of_node;
-
-	/* Get threshold value from DT */
-	if (of_property_read_u32(np, "threshold", &thresh)) {
-		thresh = THRESH_DEFAULT_TEMP;
-		dev_warn(&pdev->dev, "no threshold in DT, using default\n");
-	}
-
-	/* Get hysteresis value from DT */
-	if (of_property_read_u32(np, "hysteresis", &hyst)) {
-		hyst = THRESH_DEFAULT_HYST;
-		dev_warn(&pdev->dev, "no hysteresis in DT, using default\n");
-	}
-
-	temp = tsen_thresh_val_calc(thresh, data);
-	reg = readl_relaxed(priv->control + TSEN_CONTROL_MSB_OFFSET);
-
-	/* Set Threshold */
-	reg &= ~(data->temp_mask << TSEN_THRESH_OFFSET);
-	reg |= (temp << TSEN_THRESH_OFFSET);
-
-	/* Set Hysteresis */
-	reg &= ~(TSEN_THRESH_HYST_MASK << TSEN_THRESH_HYST_OFFSET);
-	reg |= (hyst << TSEN_THRESH_HYST_OFFSET);
-
-	writel(reg, priv->control + TSEN_CONTROL_MSB_OFFSET);
-
-	/* Hysteresis calculation is 2^(2+n) */
-	hyst = 1 << (hyst + 2);
-
-	temp = tsen_thresh_val_calc(thresh, data);
-
-	dev_info(&pdev->dev, "Overheat threshold between %d..%d\n",
-		 tsen_thresh_celsius_calc(temp, -hyst, data),
-		 tsen_thresh_celsius_calc(temp, hyst, data));
-}
-
-static void ap806_temp_set_threshold(struct platform_device *pdev,
-				     struct armada_thermal_priv *priv)
-{
-	int temp, reg, hyst;
-	unsigned int thresh;
-	struct armada_thermal_data *data = priv->data;
-	struct device_node *np = pdev->dev.of_node;
-
-	/* Get threshold value from DT */
-	if (of_property_read_u32(np, "threshold", &thresh)) {
-		thresh = THRESH_DEFAULT_TEMP;
-		dev_warn(&pdev->dev, "no threshold in DT, using default\n");
-	}
-
-	/* Get hysteresis value from DT */
-	if (of_property_read_u32(np, "hysteresis", &hyst)) {
-		hyst = THRESH_DEFAULT_HYST;
-		dev_warn(&pdev->dev, "no hysteresis in DT, using default\n");
-	}
-
-	temp = ap806_thresh_val_calc(thresh, data);
-
-	dev_dbg(&pdev->dev, "armada_thermal: Threshold is %d Hyst is %d\n",
-		thresh, hyst);
-
-	reg = readl_relaxed(priv->control + TSEN_CONTROL_MSB_OFFSET);
-
-	/* Set Threshold */
-	reg &= ~(data->temp_mask << EXT_TSEN_THRESH_OFFSET);
-	reg |= (temp << EXT_TSEN_THRESH_OFFSET);
-
-	/* Set Hysteresis */
-	reg &= ~(EXT_TSEN_THRESH_HYST_MASK << TSEN_THRESH_HYST_OFFSET);
-	reg |= (hyst << EXT_TSEN_THRESH_HYST_OFFSET);
-
-	writel(reg, priv->control + TSEN_CONTROL_MSB_OFFSET);
-
-	/* Hysteresis calculation is 2^(2+n) */
-	hyst = 1 << (hyst + 2);
-
-	dev_info(&pdev->dev, "Overheat threshold between %d..%d\n",
-		 ap806_thresh_celsius_calc(temp, -hyst, data),
-		 ap806_thresh_celsius_calc(temp, hyst, data));
-}
 
 static void armadaxp_init_sensor(struct platform_device *pdev,
 				 struct armada_thermal_priv *priv)
@@ -326,10 +187,109 @@ static void armada_wait_sensor_validity(struct armada_thermal_priv *priv)
 				   STATUS_POLL_TIMEOUT_US);
 }
 
+static unsigned int armada_celsius_to_reg_temp(struct armada_thermal_data *data,
+					       unsigned int celsius)
+{
+	s64 b = data->coef_b;
+	s64 m = data->coef_m;
+	s64 div = data->coef_div;
+	s64 temp = TO_MCELSIUS(celsius);
+	unsigned int sample;
+
+	if (data->inverted)
+		sample = div_s64(((temp * div) + b), m);
+	else
+		sample = div_s64((b - (temp * div)), m);
+
+	return sample & data->temp_mask;
+}
+
+static unsigned int armada_celsius_to_reg_hyst(struct armada_thermal_data *data,
+					       unsigned int celsius)
+{
+	/*
+	 * The documentation states:
+	 * high/low watermark = threshold +/- 0.4761 * 2^(hysteresis + 2)
+	 * which is the mathematical derivation for:
+	 * 0x0 <=> 1.9°C, 0x1 <=> 3.8°C, 0x2 <=> 7.6°C, 0x3 <=> 15.2
+	 */
+	unsigned int hyst_levels_mc[] = {1900, 3800, 7600, 15200};
+	unsigned int hyst_mc = TO_MCELSIUS(celsius);
+	int i;
+
+	/*
+	 * We will always take the smallest possible hysteresis to avoid risking
+	 * the hardware integrity by enlarging the threshold by +8°C in the
+	 * worst case.
+	 */
+	for (i = sizeof(hyst_levels_mc) - 1; i > 0; i--)
+		if (hyst_mc >= hyst_levels_mc[i])
+			break;
+
+	return i & data->hyst_mask;
+}
+
+static void armada_set_threshold(struct armada_thermal_priv *priv,
+				 unsigned int thresh_c, unsigned int hyst_c)
+{
+	struct armada_thermal_data *data = priv->data;
+	unsigned int threshold = armada_celsius_to_reg_temp(data, thresh_c);
+	unsigned int hysteresis = armada_celsius_to_reg_hyst(data, hyst_c);
+	u32 ctrl1 = readl_relaxed(priv->control1);
+
+	/* Set Threshold */
+	ctrl1 &= ~(data->temp_mask << data->thresh_shift);
+	ctrl1 |= threshold << data->thresh_shift;
+
+	/* Set Hysteresis */
+	ctrl1 &= ~(data->hyst_mask << data->hyst_shift);
+	ctrl1 |= hysteresis << data->hyst_shift;
+
+	writel(ctrl1, priv->control1);
+}
+
+static void armada_enable_overheat_interrupt(struct armada_thermal_priv *priv)
+{
+	struct armada_thermal_data *data = priv->data;
+	u32 reg;
+
+	if (!priv->dfx) {
+		/*
+		 * This is only shown at info level because a board with
+		 * multiple CP will have a single interrupt line for the
+		 * overheat interrupt and once this interrupt is
+		 * reserved, others CP will not be able to probe their
+		 * own overheat interrupt.
+		 */
+		dev_info(priv->dev,
+			 "Syscon/overheat interrupt not available\n");
+		return;
+	}
+
+	/* Clear DFX temperature IRQ cause */
+	regmap_read(priv->dfx, data->dfx_irq_cause_reg, &reg);
+
+	/* Enable DFX Temperature IRQ */
+	regmap_read(priv->dfx, data->dfx_irq_mask_reg, &reg);
+	reg |= data->dfx_overheat_irq;
+	regmap_write(priv->dfx, data->dfx_irq_mask_reg, reg);
+
+	/* Enable DFX server IRQ */
+	regmap_read(priv->dfx, data->dfx_server_irq_mask_reg, &reg);
+	reg |= data->dfx_server_irq_en;
+	regmap_write(priv->dfx, data->dfx_server_irq_mask_reg, reg);
+
+	/* Enable overheat interrupt */
+	writel_relaxed(readl(priv->control1) | CONTROL1_EXT_TSEN_INT_EN,
+		       priv->control1);
+}
+
 static void armada380_init_sensor(struct platform_device *pdev,
 				  struct armada_thermal_priv *priv)
 {
 	u32 reg = readl_relaxed(priv->control1);
+	//todo: clean threshold/hyst
+	unsigned int threshold = 46, hysteresis = 2;
 
 	/* Disable the HW/SW reset */
 	reg |= CONTROL1_EXT_TSEN_HW_RESETn;
@@ -344,29 +304,19 @@ static void armada380_init_sensor(struct platform_device *pdev,
 		writel(reg, priv->control0);
 	}
 
-	/* Set thresholds */
-	tsen_temp_set_threshold(pdev, priv);
-
-	/* Clear on Read DFX temperature irqs cause */
-	reg = readl_relaxed(priv->dfx + 0x10); // +0x8 pour cp110
-
-	/* Unmask DFX Temperature overheat and cooldown irqs */
-	reg = readl_relaxed(priv->dfx + 0x14); // 0xc pour cp110
-	reg |= (0x3 << 1); // bit 20 (CP110_TSEN_INT_MASK) pour cp110
-	writel(reg, priv->dfx + 0x14); // 0xc pour cp110
-
-	/* Unmask DFX Server irq */
-	reg = readl_relaxed(priv->dfx + 0x4);
-	reg |= (0x3 << 1); // bit(1) pour cp110 (TSEN_INT_SUM_MASK)
-	writel(reg, priv->dfx + 0x4);
+	armada_set_threshold(priv, threshold, hysteresis);
 
 	/* Wait the sensors to be valid or the core will warn the user */
 	armada_wait_sensor_validity(priv);
+
+	armada_enable_overheat_interrupt(priv);
 }
 
 static void armada_ap806_init_sensor(struct platform_device *pdev,
 				     struct armada_thermal_priv *priv)
 {
+	//todo: clean threshold/hyst
+	unsigned int threshold = 44, hysteresis = 2;
 	u32 reg;
 
 	reg = readl_relaxed(priv->control0);
@@ -374,24 +324,12 @@ static void armada_ap806_init_sensor(struct platform_device *pdev,
 	reg |= CONTROL0_TSEN_START | CONTROL0_TSEN_ENABLE;
 	writel(reg, priv->control0);
 
-	/* Set thresholds */
-	ap806_temp_set_threshold(pdev, priv);
-
-	/* Clear on Read DFX temperature irqs cause */
-	reg = readl_relaxed(priv->dfx + 0x8);
-
-	/* Unmask DFX Temperature overheat and cooldown irqs */
-	reg = readl_relaxed(priv->dfx + 0xC);
-	reg |= AP806_TSEN_INT_MASK;
-	writel(reg, priv->dfx + 0xC);
-
-	/* Unmask DFX Server irq */
-	reg = readl_relaxed(priv->dfx + 0x4);
-	reg |= TSEN_INT_SUM_MASK;
-	writel(reg, priv->dfx + 0x4);
+	armada_set_threshold(priv, threshold, hysteresis);
 
 	/* Wait the sensors to be valid or the core will warn the user */
 	armada_wait_sensor_validity(priv);
+
+	armada_enable_overheat_interrupt(priv);
 }
 
 static bool armada_is_valid(struct armada_thermal_priv *priv)
@@ -440,75 +378,27 @@ static struct thermal_zone_device_ops ops = {
 	.get_temp = armada_get_temp,
 };
 
-static irqreturn_t a38x_temp_irq_handler(int irq, void *data)
+static irqreturn_t armada_overheat_irq_handler(int irq, void *blob)
 {
-	struct armada_thermal_priv *priv = (struct armada_thermal_priv *)data;
+	struct armada_thermal_priv *priv = (struct armada_thermal_priv *)blob;
+	struct armada_thermal_data *data = priv->data;
 	u32 reg;
 
-	/* Mask Temp irq */
-	reg = readl_relaxed(priv->dfx + 0x14);
-	reg &= ~(0x3 << 1);
-	writel(reg, priv->dfx + 0x14);
+	/* Mask DFX Temperature overheat IRQ */
+	regmap_read(priv->dfx, data->dfx_irq_mask_reg, &reg);
+	reg &= ~data->dfx_overheat_irq;
+	regmap_write(priv->dfx, data->dfx_irq_mask_reg, reg);
 
-	/* Clear Temp irq cause */
-	reg = readl_relaxed(priv->dfx + 0x10);
+	/* Clear DFX temperature IRQs cause */
+	regmap_read(priv->dfx, data->dfx_irq_cause_reg, &reg);
+	if (reg & data->dfx_overheat_irq)
+		dev_warn(priv->dev,
+			 "Overheat critical threshold temperature reached\n");
 
-	if (reg & (0x3 << 1))
-		dev_warn(priv->dev, "Overheat critical %s threshold temperature reached\n",
-			 (reg & (1 << 1)) ? "high" : "low");
-
-	/* UnMask Temp irq */
-	reg = readl_relaxed(priv->dfx + 0x14);
-	reg |= (0x3 << 1);
-	writel(reg, priv->dfx + 0x14);
-
-	return IRQ_HANDLED;
-}
-
-static irqreturn_t ap806_temp_irq_handler(int irq, void *data)
-{
-	struct armada_thermal_priv *priv = (struct armada_thermal_priv *)data;
-	u32 reg;
-
-	/* Mask Temp irq */
-	reg = readl_relaxed(priv->dfx + 0xC);
-	reg &= ~AP806_TSEN_INT_MASK;
-	writel(reg, priv->dfx + 0xC);
-
-	/* Read & Clear Temp irq cause */
-	reg = readl_relaxed(priv->dfx + 0x8);
-
-	if (reg & AP806_TSEN_INT_MASK)
-		dev_warn(priv->dev, "Overheat critical high threshold temperature reached\n");
-
-	/* UnMask Temp irq */
-	reg = readl_relaxed(priv->dfx + 0xC);
-	reg |= AP806_TSEN_INT_MASK;
-	writel(reg, priv->dfx + 0xC);
-
-	return IRQ_HANDLED;
-}
-
-irqreturn_t cp110_temp_irq_handler(int irq, void *data)
-{
-	struct armada_thermal_priv *priv = (struct armada_thermal_priv *)data;
-	u32 reg;
-
-	/* Mask Temp irq */
-	reg = readl_relaxed(priv->dfx + 0xC);
-	reg &= ~CP110_TSEN_INT_MASK;
-	writel(reg, priv->dfx + 0xC);
-
-	/* Clear Temp irq cause */
-	reg = readl_relaxed(priv->dfx + 0x8);
-
-	if (reg & CP110_TSEN_INT_MASK)
-		dev_warn(priv->dev, "Overheat critical high threshold temperature reached\n");
-
-	/* UnMask Temp irq */
-	reg = readl_relaxed(priv->dfx + 0xC);
-	reg |= CP110_TSEN_INT_MASK;
-	writel(reg, priv->dfx + 0xC);
+	/* Unmask DFX Temperature overheat IRQ */
+	regmap_read(priv->dfx, data->dfx_irq_mask_reg, &reg);
+	reg |= data->dfx_overheat_irq;
+	regmap_write(priv->dfx, data->dfx_irq_mask_reg, reg);
 
 	return IRQ_HANDLED;
 }
@@ -548,46 +438,64 @@ static const struct armada_thermal_data armada375_data = {
 static const struct armada_thermal_data armada380_data = {
 	.is_valid = armada_is_valid,
 	.init_sensor = armada380_init_sensor,
-	.temp_irq_handler = a38x_temp_irq_handler,
 	.is_valid_bit = BIT(10),
 	.temp_shift = 0,
 	.temp_mask = 0x3ff,
+	.thresh_shift = 16,
+	.hyst_shift = 26,
+	.hyst_mask = 0x3,
 	.coef_b = 1172499100ULL,
 	.coef_m = 2000096ULL,
 	.coef_div = 4201,
 	.inverted = true,
-	.dfx_interrupt = 1,
+	.dfx_irq_cause_reg = 0x10,
+	.dfx_irq_mask_reg = 0x14,
+	.dfx_overheat_irq = BIT(1), /* todo: maybe BIT(2) enables a "low threshold" int */
+	.dfx_server_irq_en = BIT(1), /* todo same as above */
+	.dfx_server_irq_mask_reg = 0x4,
 };
 
 static const struct armada_thermal_data armada_ap806_data = {
 	.is_valid = armada_is_valid,
 	.init_sensor = armada_ap806_init_sensor,
-	.temp_irq_handler = ap806_temp_irq_handler,
 	.is_valid_bit = BIT(16),
 	.temp_shift = 0,
 	.temp_mask = 0x3ff,
+	.thresh_shift = 3,
+	.hyst_shift = 19,
+	.hyst_mask = 0x3,
 	.coef_b = -150000LL,
 	.coef_m = 423ULL,
 	.coef_div = 1,
 	.inverted = true,
 	.signed_sample = true,
 	.needs_control0 = true,
-	.dfx_interrupt = 1,
+	.dfx_irq_cause_reg = 0x8,
+	.dfx_irq_mask_reg = 0xC,
+	.dfx_overheat_irq = BIT(22),
+	.dfx_server_irq_mask_reg = 0x4,
+	.dfx_server_irq_en = BIT(1),
 };
 
 static const struct armada_thermal_data armada_cp110_data = {
 	.is_valid = armada_is_valid,
 	.init_sensor = armada380_init_sensor,
-	.temp_irq_handler = cp110_temp_irq_handler,
 	.is_valid_bit = BIT(10),
 	.temp_shift = 0,
 	.temp_mask = 0x3ff,
+	.thresh_shift = 16,
+	.hyst_shift = 26,
+	.hyst_mask = 0x3,
 	.coef_b = 1172499100ULL,
 	.coef_m = 2000096ULL,
 	.coef_div = 4201,
 	.inverted = true,
 	.needs_control0 = true,
-	.dfx_interrupt = 1,
+	.dfx_irq_cause_reg = 0x8,
+	.dfx_irq_mask_reg = 0xC,
+	.dfx_overheat_irq = BIT(20),
+	.dfx_server_irq_mask_reg = 0x4,
+	.dfx_server_irq_en = BIT(1),
 };
 
 static const struct of_device_id armada_thermal_id_table[] = {
@@ -653,14 +561,6 @@ static int armada_thermal_probe(struct platform_device *pdev)
 
 	priv->data = (struct armada_thermal_data *)match->data;
 
-	if (priv->data->dfx_interrupt) {
-		/* DFX interrupts are supported by some of the devices */
-		res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
-		priv->dfx = devm_ioremap_resource(&pdev->dev, res);
-		if (IS_ERR(priv->dfx))
-			return PTR_ERR(priv->dfx);
-	}
-
 	/*
 	 * Legacy DT bindings only described "control1" register (also referred
 	 * as "control MSB" on old documentation). New bindings cover
@@ -680,6 +580,16 @@ static int armada_thermal_probe(struct platform_device *pdev)
 		priv->control1 = control + CONTROL1_OFFSET;
 	}
 
+	/* DFX syscon may be used for overheat interrutps handling */
+	printk("---> %s\n", dev_name(&pdev->dev));
+	priv->dfx = syscon_regmap_lookup_by_phandle(pdev->dev.of_node,
+						    "marvell,dfx-system-controller");
+	irq = platform_get_irq(pdev, 0);
+	if (IS_ERR(priv->dfx) || irq < 0 ||
+	    devm_request_irq(&pdev->dev, irq, armada_overheat_irq_handler, 0,
+			     pdev->name, priv))
+		priv->dfx = NULL;
+
 	priv->data->init_sensor(pdev, priv);
 
 	thermal = thermal_zone_device_register(dev_name(&pdev->dev), 0, 0, priv,
@@ -688,22 +598,6 @@ static int armada_thermal_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev,
 			"Failed to register thermal zone device\n");
 		return PTR_ERR(thermal);
-	}
-
-	/* Register overheat interrupt */
-	irq = platform_get_irq(pdev, 0);
-	if (irq >= 0) {
-		if (priv->data->temp_irq_handler == NULL)
-			dev_warn(&pdev->dev, "Interrupt handler was not implemented.\n");
-
-		/* Register handler */
-		if (devm_request_irq(&pdev->dev, irq,
-				     priv->data->temp_irq_handler,
-				     0, pdev->name, priv) < 0)
-			dev_warn(&pdev->dev,
-				 "Interrupt %d is not available.\n", irq);
-	} else {
-		dev_dbg(&pdev->dev, "armada_thermal: no irq was assigned\n");
 	}
 
 	platform_set_drvdata(pdev, thermal);
