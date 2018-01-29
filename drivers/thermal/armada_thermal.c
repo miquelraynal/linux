@@ -298,7 +298,7 @@ static void armada380_init_sensor(struct platform_device *pdev,
 {
 	u32 reg = readl_relaxed(priv->control1);
 	//todo: clean threshold/hyst
-	unsigned int threshold = 46, hysteresis = 2;
+	unsigned int threshold = 51, hysteresis = 2;
 
 	/* Disable the HW/SW reset */
 	reg |= CONTROL1_EXT_TSEN_HW_RESETn;
@@ -325,7 +325,7 @@ static void armada_ap806_init_sensor(struct platform_device *pdev,
 				     struct armada_thermal_priv *priv)
 {
 	//todo: clean threshold/hyst
-	unsigned int threshold = 44, hysteresis = 2;
+	unsigned int threshold = 51, hysteresis = 2;
 	u32 reg;
 
 	reg = readl_relaxed(priv->control0);
