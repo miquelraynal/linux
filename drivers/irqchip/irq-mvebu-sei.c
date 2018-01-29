@@ -228,4 +228,4 @@ err_free_sei:
 	return ret;
 }
 
-IRQCHIP_DECLARE(mvebu_sei, "marvell,sei", mvebu_sei_of_init);
+IRQCHIP_DECLARE(mvebu_sei, "marvell,armada-8k-sei", mvebu_sei_of_init);
