@@ -27,6 +27,7 @@
 #include <linux/interrupt.h>
 #include <linux/mfd/syscon.h>
 #include <linux/regmap.h>
+#include <linux/workqueue.h>
 
 #define TO_MCELSIUS(c)			(c * 1000)
 
@@ -68,6 +69,7 @@
 
 #define STATUS_POLL_PERIOD_US		1000
 #define STATUS_POLL_TIMEOUT_US		100000
+#define OVERHEAT_INT_POLL_DELAY		(1 * HZ)
 
 struct armada_thermal_data;
 
@@ -79,6 +81,7 @@ struct armada_thermal_priv {
 	void __iomem *control1;
 	struct regmap *dfx;
 	struct armada_thermal_data *data;
+	struct delayed_work wait_end_overheat_work;
 };
 
 struct armada_thermal_data {
@@ -112,6 +115,12 @@ struct armada_thermal_data {
 	unsigned int dfx_server_irq_mask_reg;
 	unsigned int dfx_server_irq_en;
 };
+
+struct armada_thermal_priv *work_to_thermal(struct work_struct *work)
+{
+	return container_of(work, struct armada_thermal_priv,
+			    wait_end_overheat_work.work);
+}
 
 static void armadaxp_init_sensor(struct platform_device *pdev,
 				 struct armada_thermal_priv *priv)
@@ -378,27 +387,43 @@ static struct thermal_zone_device_ops ops = {
 	.get_temp = armada_get_temp,
 };
 
-static irqreturn_t armada_overheat_irq_handler(int irq, void *blob)
+static bool armada_temp_is_over_threshold(struct armada_thermal_priv * priv)
 {
-	struct armada_thermal_priv *priv = (struct armada_thermal_priv *)blob;
 	struct armada_thermal_data *data = priv->data;
 	u32 reg;
 
-	/* Mask DFX Temperature overheat IRQ */
-	regmap_read(priv->dfx, data->dfx_irq_mask_reg, &reg);
-	reg &= ~data->dfx_overheat_irq;
-	regmap_write(priv->dfx, data->dfx_irq_mask_reg, reg);
-
-	/* Clear DFX temperature IRQs cause */
+	/*
+	 * If an overheat interrupt occurred, poll DFX overheat IRQ cause
+	 * register until the right bit gets clear
+	 */
 	regmap_read(priv->dfx, data->dfx_irq_cause_reg, &reg);
-	if (reg & data->dfx_overheat_irq)
+	if (reg & data->dfx_overheat_irq) {
+		schedule_delayed_work(&priv->wait_end_overheat_work,
+				      OVERHEAT_INT_POLL_DELAY);
+		return true;
+	}
+
+	return false;
+}
+
+/*
+ * Overheat interrupt must be cleared by reading the DFX interrupt cause after
+ * the temperature has fallen down to the low threshold, otherwise future
+ * interrupts will not be served. This work polls the corresponding register
+ * until the overheat flag gets cleared.
+ */
+static void armada_wait_end_overheat(struct work_struct *work)
+{
+	armada_temp_is_over_threshold(work_to_thermal(work));
+}
+
+static irqreturn_t armada_overheat_isr(int irq, void *blob)
+{
+	struct armada_thermal_priv *priv = (struct armada_thermal_priv *)blob;
+
+	if (armada_temp_is_over_threshold(priv))
 		dev_warn(priv->dev,
 			 "Overheat critical threshold temperature reached\n");
-
-	/* Unmask DFX Temperature overheat IRQ */
-	regmap_read(priv->dfx, data->dfx_irq_mask_reg, &reg);
-	reg |= data->dfx_overheat_irq;
-	regmap_write(priv->dfx, data->dfx_irq_mask_reg, reg);
 
 	return IRQ_HANDLED;
 }
@@ -581,14 +606,19 @@ static int armada_thermal_probe(struct platform_device *pdev)
 	}
 
 	/* DFX syscon may be used for overheat interrutps handling */
-	printk("---> %s\n", dev_name(&pdev->dev));
 	priv->dfx = syscon_regmap_lookup_by_phandle(pdev->dev.of_node,
 						    "marvell,dfx-system-controller");
 	irq = platform_get_irq(pdev, 0);
-	if (IS_ERR(priv->dfx) || irq < 0 ||
-	    devm_request_irq(&pdev->dev, irq, armada_overheat_irq_handler, 0,
-			     pdev->name, priv))
+	if (IS_ERR(priv->dfx) || irq < 0) {
 		priv->dfx = NULL;
+	} else {
+		if (devm_request_irq(&pdev->dev, irq, armada_overheat_isr, 0,
+				     pdev->name, priv))
+			priv->dfx = NULL;
+		else
+			INIT_DELAYED_WORK(&priv->wait_end_overheat_work,
+					  armada_wait_end_overheat);
+	}
 
 	priv->data->init_sensor(pdev, priv);
 
