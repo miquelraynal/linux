@@ -186,7 +186,8 @@
 				compatible = "marvell,armada-cp110-thermal";
 				reg = <0x400078 0x4>, <0x400070 0x8>;
 				marvell,dfx-system-controller = <&cpm_dfx_syscon>;
-				interrupts-extended = <&sei 37>;
+				interrupt-parent = <&sei>;
+				interrupts = <37>;
 			};
 
 			cpm_dfx_syscon: system-controller@0x400100 {
