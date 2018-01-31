@@ -45,6 +45,7 @@
  */
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/thermal/thermal.h>
 
 /dts-v1/;
 
@@ -300,11 +301,34 @@
 				compatible = "syscon", "simple-mfd";
 				reg = <0x6f8000 0x1000>;
 
-				ap_thermal: ap-thermal {
+				ap_thermal_sensors: ap-thermal-sensors {
 					compatible = "marvell,armada-ap806-thermal";
 					interrupt-parent = <&sei>;
 					interrupts = <18>;
+					#thermal-sensor-cells = <1>;
 				};
+			};
+		};
+	};
+
+	thermal-zones {
+		ap_thermal: ap-thermal {
+			polling-delay-passive = <0>; /* Interrupt driven */
+			polling-delay = <0>; /* Interrupt driven */
+
+			/* Sensor              ID */
+			thermal-sensors = <&ap_thermal_sensors ID_HERE_TO_DETERMINE_MAX_SENSOR>;
+
+			trips {
+				ap_alert: ap-alert {
+					temperature = <100000>; /* millicelsius */
+					hysteresis = <2000>; /* millicelsius */
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				/* None as there are no cooling devices */
 			};
 		};
 	};
