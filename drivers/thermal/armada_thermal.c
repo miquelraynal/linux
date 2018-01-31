@@ -121,16 +121,14 @@ static void armadaxp_init_sensor(struct platform_device *pdev,
 
 	regmap_read(priv->syscon, data->syscon_control1_off, &reg);
 	reg |= PMU_TDC0_OTF_CAL_MASK;
-	regmap_write(priv->syscon, data->syscon_control1_off, reg);
 
 	/* Reference calibration value */
 	reg &= ~PMU_TDC0_REF_CAL_CNT_MASK;
 	reg |= (0xf1 << PMU_TDC0_REF_CAL_CNT_OFFS);
-	regmap_write(priv->syscon, data->syscon_control1_off, reg);
 
 	/* Reset the sensor */
-	regmap_read(priv->syscon, data->syscon_control1_off, &reg);
 	reg |= PMU_TDC0_SW_RST_MASK;
+
 	regmap_write(priv->syscon, data->syscon_control1_off, reg);
 
 	/* Enable the sensor */
@@ -147,15 +145,14 @@ static void armada370_init_sensor(struct platform_device *pdev,
 
 	regmap_read(priv->syscon, data->syscon_control1_off, &reg);
 	reg |= PMU_TDC0_OTF_CAL_MASK;
-	regmap_write(priv->syscon, data->syscon_control1_off, reg);
 
 	/* Reference calibration value */
 	reg &= ~PMU_TDC0_REF_CAL_CNT_MASK;
 	reg |= (0xf1 << PMU_TDC0_REF_CAL_CNT_OFFS);
-	regmap_write(priv->syscon, data->syscon_control1_off, reg);
 
 	/* Reset the sensor */
 	reg &= ~PMU_TDC0_START_CAL_MASK;
+
 	regmap_write(priv->syscon, data->syscon_control1_off, reg);
 
 	msleep(10);
