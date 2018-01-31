@@ -707,8 +707,8 @@ static int armada_thermal_probe(struct platform_device *pdev)
 	if (strlen(name) > THERMAL_NAME_LENGTH) {
 		/*
 		 * When inside a system controller, the device name has the
-		 * form: f06f8000.system-controller:thermal@6f808C so stripping
-		 * after the ':' should give us a shorter but meaningful name
+		 * form: f06f8000.system-controller:ap-thermal so stripping
+		 * after the ':' should give us a shorter but meaningful name.
 		 */
 		name = strrchr(name, ':');
 		if (!name)
