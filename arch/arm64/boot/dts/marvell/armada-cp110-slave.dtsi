@@ -186,7 +186,7 @@
 				compatible = "syscon", "simple-mfd";
 				reg = <0x400000 0x1000>;
 
-				cps_thermal: cps_thermal {
+				cps_thermal: cps-thermal {
 					compatible = "marvell,armada-cp110-thermal";
 					interrupt-parent = <&sei>;
 					interrupts = <37>;

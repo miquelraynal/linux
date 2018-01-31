@@ -300,7 +300,7 @@
 				compatible = "syscon", "simple-mfd";
 				reg = <0x6f8000 0x1000>;
 
-				ap_thermal: ap_thermal {
+				ap_thermal: ap-thermal {
 					compatible = "marvell,armada-ap806-thermal";
 					interrupt-parent = <&sei>;
 					interrupts = <18>;
