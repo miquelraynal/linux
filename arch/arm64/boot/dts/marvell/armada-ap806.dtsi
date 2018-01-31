@@ -296,17 +296,15 @@
 				};
 			};
 
-			ap_thermal: thermal@6f808C {
-				compatible = "marvell,armada-ap806-thermal";
-				reg = <0x6f808C 0x4>, <0x6f8084 0x8>;
-				marvell,dfx-system-controller = <&ap_dfx_syscon>;
-				interrupt-parent = <&sei>;
-				interrupts = <18>;
-			};
-
-			ap_dfx_syscon: system-controller@6f8100 {
+			ap_syscon1: system-controller@6f8000 {
 				compatible = "syscon", "simple-mfd";
-				reg = <0x6f8100 0x20>;
+				reg = <0x6f8000 0x1000>;
+
+				ap_thermal: ap_thermal {
+					compatible = "marvell,armada-ap806-thermal";
+					interrupt-parent = <&sei>;
+					interrupts = <18>;
+				};
 			};
 		};
 	};

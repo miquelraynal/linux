@@ -182,17 +182,15 @@
 				interrupts = <ICU_GRP_NSR 77 IRQ_TYPE_LEVEL_HIGH>;
 			};
 
-			cpm_thermal: thermal@400078 {
-				compatible = "marvell,armada-cp110-thermal";
-				reg = <0x400078 0x4>, <0x400070 0x8>;
-				marvell,dfx-system-controller = <&cpm_dfx_syscon>;
-				interrupt-parent = <&sei>;
-				interrupts = <37>;
-			};
-
-			cpm_dfx_syscon: system-controller@0x400100 {
+			cpm_syscon1: system-controller@400000 {
 				compatible = "syscon", "simple-mfd";
-				reg = <0x400100 0x20>;
+				reg = <0x400000 0x1000>;
+
+				cpm_thermal: cpm_thermal {
+					compatible = "marvell,armada-cp110-thermal";
+					interrupt-parent = <&sei>;
+					interrupts = <37>;
+				};
 			};
 
 			cpm_syscon0: system-controller@440000 {
