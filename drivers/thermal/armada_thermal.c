@@ -57,7 +57,7 @@
 /* EXT_TSEN refers to the external temperature sensors, out of the AP */
 #define CONTROL1_EXT_TSEN_SW_RESET	BIT(7)
 #define CONTROL1_EXT_TSEN_HW_RESETn	BIT(8)
-#define CONTROL1_EXT_TSEN_INT_EN	BIT(25) //todo: check this is always valid
+#define CONTROL1_EXT_TSEN_INT_EN	BIT(25) //todo: check this is still valid for a38x
 
 #define STATUS_POLL_PERIOD_US		1000
 #define STATUS_POLL_TIMEOUT_US		100000
