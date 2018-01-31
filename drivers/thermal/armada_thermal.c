@@ -666,6 +666,7 @@ static int armada_thermal_probe(struct platform_device *pdev)
 	struct thermal_zone_device *thermal;
 	const struct of_device_id *match;
 	struct armada_thermal_priv *priv;
+	const char *name;
 	int ret;
 
 	match = of_match_device(armada_thermal_id_table, &pdev->dev);
@@ -704,8 +705,23 @@ static int armada_thermal_probe(struct platform_device *pdev)
 
 	priv->data->init_sensor(pdev, priv);
 
-	thermal = thermal_zone_device_register(dev_name(&pdev->dev), 0, 0, priv,
-					       &ops, NULL, 0, 0);
+	/* Ensure device name is correct for the thermal core */
+	name = dev_name(&pdev->dev);
+	if (strlen(name) > THERMAL_NAME_LENGTH) {
+		/*
+		 * When inside a system controller, the device name has the
+		 * form: f06f8000.system-controller:thermal@6f808C so stripping
+		 * after the ':' should give us a shorter but meaningful name
+		 */
+		name = strrchr(name, ':');
+		if (!name)
+			name = "armada_thermal";
+		else
+			name++;
+	}
+
+	thermal = thermal_zone_device_register(name, 0, 0, priv, &ops, NULL, 0,
+					       0);
 	if (IS_ERR(thermal)) {
 		dev_err(&pdev->dev,
 			"Failed to register thermal zone device\n");
