@@ -78,12 +78,12 @@
 
 /* J9 */
 &pcie0 {
-	status = "okay";
+//	status = "okay";
 };
 
 /* J6 */
 &sata {
-	status = "okay";
+//	status = "okay";
 };
 
 /* J1 */
@@ -93,7 +93,7 @@
 	cd-gpios = <&gpionb 3 GPIO_ACTIVE_LOW>;
 	marvell,pad-type = "sd";
 	vqmmc-supply = <&vcc_sd_reg1>;
-	status = "okay";
+//	status = "okay";
 };
 
 /* Exported on the micro USB connector J5 through an FTDI */
@@ -115,15 +115,16 @@
 
 /* J7 */
 &usb3 {
-	status = "okay";
+//	status = "okay";
 };
 
 /* J8 */
 &usb2 {
-	status = "okay";
+//	status = "okay";
 };
 
 &mdio {
+	status = "disabled";
 	switch0: switch0@1 {
 		compatible = "marvell,mv88e6085";
 		#address-cells = <1>;
@@ -181,7 +182,7 @@
 
 &eth0 {
 	phy-mode = "rgmii-id";
-	status = "okay";
+//	status = "okay";
 
 	fixed-link {
 		speed = <1000>;
