@@ -1,0 +1,39 @@
+Marvell SEI (System Error Interrupt) Controller
+-----------------------------------------------
+
+Marvell SEI (System Error Interrupt) controller is an interrupt
+aggregator. It receives interrupts from several sources and aggregates
+them to a single interrupt line (an SPI) on the parent interrupt
+controller.
+
+This interrupt controller can handle up to 64 SEIs, a set comes from the
+AP and is wired while a second set comes from the CPs by the mean of
+MSIs. Each 'domain' is represented as a subnode.
+
+Required properties:
+
+- compatible: should be "marvell,armada-8k-sei".
+- reg: SEI registers location and length.
+- interrupts: identifies the parent IRQ that will be triggered.
+- marvell,sei-ranges: two ranges, the first one describe wired
+                      interrupts coming from the AP, the second one
+                      non-wired interrupts (MSI) from the CPs.
+- #interrupt-cells: number of cells to define an SEI wired interrupt
+                    coming from the AP, should be 1. The cell is the IRQ
+                    number.
+- interrupt-controller: identifies the node as an interrupt controller
+                        (AP only).
+- msi-controller: identifies the node as an MSI controller (CPs only).
+
+Example:
+
+        sei: interrupt-controller@3f0200 {
+                compatible = "marvell,armada-8k-sei";
+                reg = <0x3f0200 0x40>;
+                interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
+                marvell,sei-ap-ranges = <0 21>;
+                marvell,sei-cp-ranges = <21 43>;
+                #interrupt-cells = <1>;
+                interrupt-controller;
+                msi-controller;
+        };
