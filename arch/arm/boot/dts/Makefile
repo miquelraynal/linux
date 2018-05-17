@@ -1489,7 +1489,8 @@ dtb-$(CONFIG_ARCH_ZYNQ) += \
 	zynq-zturn.dtb \
 	zynq-zturn-v5.dtb \
 	zynq-zybo.dtb \
-	zynq-zybo-z7.dtb
+	zynq-zybo-z7.dtb \
+	zynq-mxic-picozed.dtb
 dtb-$(CONFIG_MACH_ARMADA_370) += \
 	armada-370-c200-v2.dtb \
 	armada-370-db.dtb \
