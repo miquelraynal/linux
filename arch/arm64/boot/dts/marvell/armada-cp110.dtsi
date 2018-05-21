@@ -35,7 +35,7 @@
 
 			trips {
 				CP110_LABEL(crit): crit {
-					temperature = <100000>; /* mC degrees */
+					temperature = <53000>; /* mC degrees */
 					hysteresis = <2000>; /* mC degrees */
 					type = "critical";
 				};

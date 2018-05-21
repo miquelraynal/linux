@@ -292,7 +292,7 @@
 
 			trips {
 				ap_crit: ap-crit {
-					temperature = <100000>; /* mC degrees */
+					temperature = <50000>; /* mC degrees */
 					hysteresis = <2000>; /* mC degrees */
 					type = "critical";
 				};
