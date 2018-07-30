@@ -112,6 +112,7 @@
 /* J7 */
 &usb3 {
 	status = "okay";
+	phys = <&comphy0 0>;
 };
 
 /* J8 */
