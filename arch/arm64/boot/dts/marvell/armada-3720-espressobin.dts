@@ -46,6 +46,7 @@
 /* J9 */
 &pcie0 {
 	status = "okay";
+	phys = <&comphy1 0>;
 };
 
 /* J6 */
