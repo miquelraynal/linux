@@ -414,6 +414,7 @@
 			#address-cells = <3>;
 			#size-cells = <2>;
 			bus-range = <0x00 0xff>;
+			clocks = <&sb_periph_clk 13>;
 			interrupts = <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>;
 			#interrupt-cells = <1>;
 			msi-parent = <&pcie0>;
