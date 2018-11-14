@@ -230,13 +230,13 @@ concat_writev(struct mtd_info *mtd, const struct kvec *vecs,
 }
 
 static int
-concat_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_oob_ops *ops)
+concat_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_io_op *op)
 {
 	struct mtd_concat *concat = CONCAT(mtd);
-	struct mtd_oob_ops devops = *ops;
+	struct mtd_io_op devop = *op;
 	int i, err, ret = 0;
 
-	ops->retlen = ops->oobretlen = 0;
+	op->retlen = op->oobretlen = 0;
 
 	for (i = 0; i < concat->num_subdev; i++) {
 		struct mtd_info *subdev = concat->subdev[i];
@@ -247,12 +247,12 @@ concat_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_oob_ops *ops)
 		}
 
 		/* partial read ? */
-		if (from + devops.len > subdev->size)
-			devops.len = subdev->size - from;
+		if (from + devop.len > subdev->size)
+			devop.len = subdev->size - from;
 
-		err = mtd_read_oob(subdev, from, &devops);
-		ops->retlen += devops.retlen;
-		ops->oobretlen += devops.oobretlen;
+		err = mtd_read_oob(subdev, from, &devop);
+		op->retlen += devop.retlen;
+		op->oobretlen += devop.oobretlen;
 
 		/* Save information about bitflips! */
 		if (unlikely(err)) {
@@ -268,17 +268,17 @@ concat_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_oob_ops *ops)
 				return err;
 		}
 
-		if (devops.datbuf) {
-			devops.len = ops->len - ops->retlen;
-			if (!devops.len)
+		if (devop.datbuf) {
+			devop.len = op->len - op->retlen;
+			if (!devop.len)
 				return ret;
-			devops.datbuf += devops.retlen;
+			devop.datbuf += devop.retlen;
 		}
-		if (devops.oobbuf) {
-			devops.ooblen = ops->ooblen - ops->oobretlen;
-			if (!devops.ooblen)
+		if (devop.oobbuf) {
+			devop.ooblen = op->ooblen - op->oobretlen;
+			if (!devop.ooblen)
 				return ret;
-			devops.oobbuf += ops->oobretlen;
+			devop.oobbuf += op->oobretlen;
 		}
 
 		from = 0;
@@ -287,16 +287,16 @@ concat_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_oob_ops *ops)
 }
 
 static int
-concat_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
+concat_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_io_op *op)
 {
 	struct mtd_concat *concat = CONCAT(mtd);
-	struct mtd_oob_ops devops = *ops;
+	struct mtd_io_op devop = *op;
 	int i, err;
 
 	if (!(mtd->flags & MTD_WRITEABLE))
 		return -EROFS;
 
-	ops->retlen = ops->oobretlen = 0;
+	op->retlen = op->oobretlen = 0;
 
 	for (i = 0; i < concat->num_subdev; i++) {
 		struct mtd_info *subdev = concat->subdev[i];
@@ -307,26 +307,26 @@ concat_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 		}
 
 		/* partial write ? */
-		if (to + devops.len > subdev->size)
-			devops.len = subdev->size - to;
+		if (to + devop.len > subdev->size)
+			devop.len = subdev->size - to;
 
-		err = mtd_write_oob(subdev, to, &devops);
-		ops->retlen += devops.retlen;
-		ops->oobretlen += devops.oobretlen;
+		err = mtd_write_oob(subdev, to, &devop);
+		op->retlen += devop.retlen;
+		op->oobretlen += devop.oobretlen;
 		if (err)
 			return err;
 
-		if (devops.datbuf) {
-			devops.len = ops->len - ops->retlen;
-			if (!devops.len)
+		if (devop.datbuf) {
+			devop.len = op->len - op->retlen;
+			if (!devop.len)
 				return 0;
-			devops.datbuf += devops.retlen;
+			devop.datbuf += devop.retlen;
 		}
-		if (devops.oobbuf) {
-			devops.ooblen = ops->ooblen - ops->oobretlen;
-			if (!devops.ooblen)
+		if (devop.oobbuf) {
+			devop.ooblen = op->ooblen - op->oobretlen;
+			if (!devop.ooblen)
 				return 0;
-			devops.oobbuf += devops.oobretlen;
+			devop.oobbuf += devop.oobretlen;
 		}
 		to = 0;
 	}

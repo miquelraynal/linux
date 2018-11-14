@@ -870,42 +870,42 @@ static void calc_block_sector(loff_t from, int *block0, int *block1, int *page,
  * @mtd: the device
  * @from: the offset from first block and first page, in bytes, aligned on page
  *        size
- * @ops: the mtd oob structure
+ * @op: MTD operation structure
  *
  * Reads flash memory OOB area of pages.
  *
  * Returns 0 if read successful, of -EIO, -EINVAL if an error occurred
  */
 static int doc_read_oob(struct mtd_info *mtd, loff_t from,
-			struct mtd_oob_ops *ops)
+			struct mtd_io_op *op)
 {
 	struct docg3 *docg3 = mtd->priv;
 	int block0, block1, page, ret, skip, ofs = 0;
-	u8 *oobbuf = ops->oobbuf;
-	u8 *buf = ops->datbuf;
+	u8 *oobbuf = op->oobbuf;
+	u8 *buf = op->datbuf;
 	size_t len, ooblen, nbdata, nboob;
 	u8 hwecc[DOC_ECC_BCH_SIZE], eccconf1;
 	int max_bitflips = 0;
 
 	if (buf)
-		len = ops->len;
+		len = op->len;
 	else
 		len = 0;
 	if (oobbuf)
-		ooblen = ops->ooblen;
+		ooblen = op->ooblen;
 	else
 		ooblen = 0;
 
-	if (oobbuf && ops->mode == MTD_OPS_PLACE_OOB)
-		oobbuf += ops->ooboffs;
+	if (oobbuf && op->mode == MTD_OPS_PLACE_OOB)
+		oobbuf += op->ooboffs;
 
 	doc_dbg("doc_read_oob(from=%lld, mode=%d, data=(%p:%zu), oob=(%p:%zu))\n",
-		from, ops->mode, buf, len, oobbuf, ooblen);
+		from, op->mode, buf, len, oobbuf, ooblen);
 	if (ooblen % DOC_LAYOUT_OOB_SIZE)
 		return -EINVAL;
 
-	ops->oobretlen = 0;
-	ops->retlen = 0;
+	op->oobretlen = 0;
+	op->retlen = 0;
 	ret = 0;
 	skip = from % DOC_LAYOUT_PAGE_SIZE;
 	mutex_lock(&docg3->cascade->lock);
@@ -954,7 +954,7 @@ static int doc_read_oob(struct mtd_info *mtd, loff_t from,
 		if ((block0 >= DOC_LAYOUT_BLOCK_FIRST_DATA) &&
 		    (eccconf1 & DOC_ECCCONF1_BCH_SYNDROM_ERR) &&
 		    (eccconf1 & DOC_ECCCONF1_PAGE_IS_WRITTEN) &&
-		    (ops->mode != MTD_OPS_RAW) &&
+		    (op->mode != MTD_OPS_RAW) &&
 		    (nbdata == DOC_LAYOUT_PAGE_SIZE)) {
 			ret = doc_ecc_bch_fix_data(docg3, buf, hwecc);
 			if (ret < 0) {
@@ -969,8 +969,8 @@ static int doc_read_oob(struct mtd_info *mtd, loff_t from,
 		}
 
 		doc_read_page_finish(docg3);
-		ops->retlen += nbdata;
-		ops->oobretlen += nboob;
+		op->retlen += nbdata;
+		op->oobretlen += nboob;
 		buf += nbdata;
 		oobbuf += nboob;
 		len -= nbdata;
@@ -1295,16 +1295,16 @@ err:
 }
 
 /**
- * doc_guess_autoecc - Guess autoecc mode from mbd_oob_ops
- * @ops: the oob operations
+ * doc_guess_autoecc - Guess autoecc mode from mtd_io_op
+ * @op: MTD operation structure
  *
  * Returns 0 or 1 if success, -EINVAL if invalid oob mode
  */
-static int doc_guess_autoecc(struct mtd_oob_ops *ops)
+static int doc_guess_autoecc(struct mtd_io_op *op)
 {
 	int autoecc;
 
-	switch (ops->mode) {
+	switch (op->mode) {
 	case MTD_OPS_PLACE_OOB:
 	case MTD_OPS_AUTO_OOB:
 		autoecc = 1;
@@ -1334,7 +1334,7 @@ static void doc_fill_autooob(u8 *dst, u8 *oobsrc)
  * doc_backup_oob - Backup OOB into docg3 structure
  * @docg3: the device
  * @to: the page offset in the chip
- * @ops: the OOB size and buffer
+ * @op: MTD operation structure
  *
  * As the docg3 should write a page with its OOB in one pass, and some userland
  * applications do write_oob() to setup the OOB and then write(), store the OOB
@@ -1345,27 +1345,27 @@ static void doc_fill_autooob(u8 *dst, u8 *oobsrc)
  * The only reliable way would be for userland to call doc_write_oob() with both
  * the page data _and_ the OOB area.
  *
- * Returns 0 if success, -EINVAL if ops content invalid
+ * Returns 0 if success, -EINVAL if op content invalid
  */
 static int doc_backup_oob(struct docg3 *docg3, loff_t to,
-			  struct mtd_oob_ops *ops)
+			  struct mtd_io_op *op)
 {
-	int ooblen = ops->ooblen, autoecc;
+	int ooblen = op->ooblen, autoecc;
 
 	if (ooblen != DOC_LAYOUT_OOB_SIZE)
 		return -EINVAL;
-	autoecc = doc_guess_autoecc(ops);
+	autoecc = doc_guess_autoecc(op);
 	if (autoecc < 0)
 		return autoecc;
 
 	docg3->oob_write_ofs = to;
 	docg3->oob_autoecc = autoecc;
-	if (ops->mode == MTD_OPS_AUTO_OOB) {
-		doc_fill_autooob(docg3->oob_write_buf, ops->oobbuf);
-		ops->oobretlen = 8;
+	if (op->mode == MTD_OPS_AUTO_OOB) {
+		doc_fill_autooob(docg3->oob_write_buf, op->oobbuf);
+		op->oobretlen = 8;
 	} else {
-		memcpy(docg3->oob_write_buf, ops->oobbuf, DOC_LAYOUT_OOB_SIZE);
-		ops->oobretlen = DOC_LAYOUT_OOB_SIZE;
+		memcpy(docg3->oob_write_buf, op->oobbuf, DOC_LAYOUT_OOB_SIZE);
+		op->oobretlen = DOC_LAYOUT_OOB_SIZE;
 	}
 	return 0;
 }
@@ -1375,7 +1375,7 @@ static int doc_backup_oob(struct docg3 *docg3, loff_t to,
  * @mtd: the device
  * @ofs: the offset from first block and first page, in bytes, aligned on page
  *       size
- * @ops: the mtd oob structure
+ * @op: MTD operation structure
  *
  * Either write OOB data into a temporary buffer, for the subsequent write
  * page. The provided OOB should be 16 bytes long. If a data buffer is provided
@@ -1386,30 +1386,30 @@ static int doc_backup_oob(struct docg3 *docg3, loff_t to,
  * Returns 0 is successful, EINVAL if length is not 14 bytes
  */
 static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
-			 struct mtd_oob_ops *ops)
+			 struct mtd_io_op *op)
 {
 	struct docg3 *docg3 = mtd->priv;
 	int ret, autoecc, oobdelta;
-	u8 *oobbuf = ops->oobbuf;
-	u8 *buf = ops->datbuf;
+	u8 *oobbuf = op->oobbuf;
+	u8 *buf = op->datbuf;
 	size_t len, ooblen;
 	u8 oob[DOC_LAYOUT_OOB_SIZE];
 
 	if (buf)
-		len = ops->len;
+		len = op->len;
 	else
 		len = 0;
 	if (oobbuf)
-		ooblen = ops->ooblen;
+		ooblen = op->ooblen;
 	else
 		ooblen = 0;
 
-	if (oobbuf && ops->mode == MTD_OPS_PLACE_OOB)
-		oobbuf += ops->ooboffs;
+	if (oobbuf && op->mode == MTD_OPS_PLACE_OOB)
+		oobbuf += op->ooboffs;
 
 	doc_dbg("doc_write_oob(from=%lld, mode=%d, data=(%p:%zu), oob=(%p:%zu))\n",
-		ofs, ops->mode, buf, len, oobbuf, ooblen);
-	switch (ops->mode) {
+		ofs, op->mode, buf, len, oobbuf, ooblen);
+	switch (op->mode) {
 	case MTD_OPS_PLACE_OOB:
 	case MTD_OPS_RAW:
 		oobdelta = mtd->oobsize;
@@ -1427,15 +1427,15 @@ static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
 	    (len / DOC_LAYOUT_PAGE_SIZE) != (ooblen / oobdelta))
 		return -EINVAL;
 
-	ops->oobretlen = 0;
-	ops->retlen = 0;
+	op->oobretlen = 0;
+	op->retlen = 0;
 	ret = 0;
 	if (len == 0 && ooblen == 0)
 		return -EINVAL;
 	if (len == 0 && ooblen > 0)
-		return doc_backup_oob(docg3, ofs, ops);
+		return doc_backup_oob(docg3, ofs, op);
 
-	autoecc = doc_guess_autoecc(ops);
+	autoecc = doc_guess_autoecc(op);
 	if (autoecc < 0)
 		return autoecc;
 
@@ -1444,7 +1444,7 @@ static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
 		memset(oob, 0, sizeof(oob));
 		if (ofs == docg3->oob_write_ofs)
 			memcpy(oob, docg3->oob_write_buf, DOC_LAYOUT_OOB_SIZE);
-		else if (ooblen > 0 && ops->mode == MTD_OPS_AUTO_OOB)
+		else if (ooblen > 0 && op->mode == MTD_OPS_AUTO_OOB)
 			doc_fill_autooob(oob, oobbuf);
 		else if (ooblen > 0)
 			memcpy(oob, oobbuf, DOC_LAYOUT_OOB_SIZE);
@@ -1456,9 +1456,9 @@ static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
 		if (ooblen) {
 			oobbuf += oobdelta;
 			ooblen -= oobdelta;
-			ops->oobretlen += oobdelta;
+			op->oobretlen += oobdelta;
 		}
-		ops->retlen += DOC_LAYOUT_PAGE_SIZE;
+		op->retlen += DOC_LAYOUT_PAGE_SIZE;
 	}
 
 	doc_set_device_id(docg3, 0);

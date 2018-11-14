@@ -59,19 +59,19 @@ static int read_eraseblock_by_page(int ebnum)
 				err = ret;
 		}
 		if (mtd->oobsize) {
-			struct mtd_oob_ops ops;
+			struct mtd_io_op op;
 
-			ops.mode      = MTD_OPS_PLACE_OOB;
-			ops.len       = 0;
-			ops.retlen    = 0;
-			ops.ooblen    = mtd->oobsize;
-			ops.oobretlen = 0;
-			ops.ooboffs   = 0;
-			ops.datbuf    = NULL;
-			ops.oobbuf    = oobbuf;
-			ret = mtd_read_oob(mtd, addr, &ops);
+			op.mode      = MTD_OPS_PLACE_OOB;
+			op.len       = 0;
+			op.retlen    = 0;
+			op.ooblen    = mtd->oobsize;
+			op.oobretlen = 0;
+			op.ooboffs   = 0;
+			op.datbuf    = NULL;
+			op.oobbuf    = oobbuf;
+			ret = mtd_read_oob(mtd, addr, &op);
 			if ((ret && !mtd_is_bitflip(ret)) ||
-					ops.oobretlen != mtd->oobsize) {
+					op.oobretlen != mtd->oobsize) {
 				pr_err("error: read oob failed at "
 						  "%#llx\n", (long long)addr);
 				if (!err)

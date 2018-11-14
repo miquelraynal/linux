@@ -53,7 +53,7 @@ struct mtd_erase_region_info {
 };
 
 /**
- * struct mtd_oob_ops - oob operation operands
+ * struct mtd_io_op - oob operation operands
  * @mode:	operation mode
  *
  * @len:	number of data bytes to write/read
@@ -73,7 +73,7 @@ struct mtd_erase_region_info {
  * devices you should split the write request into several sub-requests when the
  * request crosses a page boundary.
  */
-struct mtd_oob_ops {
+struct mtd_io_op {
 	unsigned int	mode;
 	size_t		len;
 	size_t		retlen;
@@ -293,9 +293,9 @@ struct mtd_info {
 	int (*_panic_write) (struct mtd_info *mtd, loff_t to, size_t len,
 			     size_t *retlen, const u_char *buf);
 	int (*_read_oob) (struct mtd_info *mtd, loff_t from,
-			  struct mtd_oob_ops *ops);
+			  struct mtd_io_op *op);
 	int (*_write_oob) (struct mtd_info *mtd, loff_t to,
-			   struct mtd_oob_ops *ops);
+			   struct mtd_io_op *op);
 	int (*_get_fact_prot_info) (struct mtd_info *mtd, size_t len,
 				    size_t *retlen, struct otp_info *buf);
 	int (*_read_fact_prot_reg) (struct mtd_info *mtd, loff_t from,
@@ -386,9 +386,9 @@ static inline struct device_node *mtd_get_of_node(struct mtd_info *mtd)
 	return dev_of_node(&mtd->dev);
 }
 
-static inline int mtd_oobavail(struct mtd_info *mtd, struct mtd_oob_ops *ops)
+static inline int mtd_oobavail(struct mtd_info *mtd, struct mtd_io_op *op)
 {
-	return ops->mode == MTD_OPS_AUTO_OOB ? mtd->oobavail : mtd->oobsize;
+	return op->mode == MTD_OPS_AUTO_OOB ? mtd->oobavail : mtd->oobsize;
 }
 
 static inline int mtd_max_bad_blocks(struct mtd_info *mtd,
@@ -421,8 +421,8 @@ int mtd_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 int mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 		    const u_char *buf);
 
-int mtd_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_oob_ops *ops);
-int mtd_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops);
+int mtd_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_io_op *op);
+int mtd_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_io_op *op);
 
 int mtd_get_fact_prot_info(struct mtd_info *mtd, size_t len, size_t *retlen,
 			   struct otp_info *buf);

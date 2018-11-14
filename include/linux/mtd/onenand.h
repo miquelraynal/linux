@@ -222,7 +222,7 @@ struct onenand_manufacturers {
 };
 
 int onenand_bbt_read_oob(struct mtd_info *mtd, loff_t from,
-			 struct mtd_oob_ops *ops);
+			 struct mtd_io_op *op);
 unsigned onenand_block(struct onenand_chip *this, loff_t addr);
 loff_t onenand_addr(struct onenand_chip *this, int block);
 int flexonenand_region(struct mtd_info *mtd, loff_t addr);

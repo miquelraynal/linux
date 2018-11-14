@@ -316,19 +316,19 @@ static int scan_read_oob(struct nand_chip *this, uint8_t *buf, loff_t offs,
 			 size_t len)
 {
 	struct mtd_info *mtd = nand_to_mtd(this);
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int res, ret = 0;
 
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ops.ooboffs = 0;
-	ops.ooblen = mtd->oobsize;
+	op.mode = MTD_OPS_PLACE_OOB;
+	op.ooboffs = 0;
+	op.ooblen = mtd->oobsize;
 
 	while (len > 0) {
-		ops.datbuf = buf;
-		ops.len = min(len, (size_t)mtd->writesize);
-		ops.oobbuf = buf + ops.len;
+		op.datbuf = buf;
+		op.len = min(len, (size_t)mtd->writesize);
+		op.oobbuf = buf + op.len;
 
-		res = mtd_read_oob(mtd, offs, &ops);
+		res = mtd_read_oob(mtd, offs, &op);
 		if (res) {
 			if (!mtd_is_bitflip_or_eccerr(res))
 				return res;
@@ -357,16 +357,16 @@ static int scan_write_bbt(struct nand_chip *this, loff_t offs, size_t len,
 			  uint8_t *buf, uint8_t *oob)
 {
 	struct mtd_info *mtd = nand_to_mtd(this);
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ops.ooboffs = 0;
-	ops.ooblen = mtd->oobsize;
-	ops.datbuf = buf;
-	ops.oobbuf = oob;
-	ops.len = len;
+	op.mode = MTD_OPS_PLACE_OOB;
+	op.ooboffs = 0;
+	op.ooblen = mtd->oobsize;
+	op.datbuf = buf;
+	op.oobbuf = oob;
+	op.len = len;
 
-	return mtd_write_oob(mtd, offs, &ops);
+	return mtd_write_oob(mtd, offs, &op);
 }
 
 static u32 bbt_get_ver_offs(struct nand_chip *this, struct nand_bbt_descr *td)
@@ -418,21 +418,21 @@ static int scan_block_fast(struct nand_chip *this, struct nand_bbt_descr *bd,
 			   loff_t offs, uint8_t *buf, int numpages)
 {
 	struct mtd_info *mtd = nand_to_mtd(this);
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int j, ret;
 
-	ops.ooblen = mtd->oobsize;
-	ops.oobbuf = buf;
-	ops.ooboffs = 0;
-	ops.datbuf = NULL;
-	ops.mode = MTD_OPS_PLACE_OOB;
+	op.ooblen = mtd->oobsize;
+	op.oobbuf = buf;
+	op.ooboffs = 0;
+	op.datbuf = NULL;
+	op.mode = MTD_OPS_PLACE_OOB;
 
 	for (j = 0; j < numpages; j++) {
 		/*
 		 * Read the full oob until read_oob is fixed to handle single
 		 * byte reads for 16 bit buswidth.
 		 */
-		ret = mtd_read_oob(mtd, offs, &ops);
+		ret = mtd_read_oob(mtd, offs, &op);
 		/* Ignore ECC errors when checking for BBM */
 		if (ret && !mtd_is_bitflip_or_eccerr(ret))
 			return ret;
@@ -726,12 +726,12 @@ static int write_bbt(struct nand_chip *this, uint8_t *buf,
 	uint8_t rcode = td->reserved_block_code;
 	size_t retlen, len = 0;
 	loff_t to;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 
-	ops.ooblen = mtd->oobsize;
-	ops.ooboffs = 0;
-	ops.datbuf = NULL;
-	ops.mode = MTD_OPS_PLACE_OOB;
+	op.ooblen = mtd->oobsize;
+	op.ooboffs = 0;
+	op.datbuf = NULL;
+	op.mode = MTD_OPS_PLACE_OOB;
 
 	if (!rcode)
 		rcode = 0xff;
@@ -802,10 +802,10 @@ static int write_bbt(struct nand_chip *this, uint8_t *buf,
 				pr_warn("nand_bbt: ECC error while reading block for writing bad block table\n");
 			}
 			/* Read oob data */
-			ops.ooblen = (len >> this->page_shift) * mtd->oobsize;
-			ops.oobbuf = &buf[len];
-			res = mtd_read_oob(mtd, to + mtd->writesize, &ops);
-			if (res < 0 || ops.oobretlen != ops.ooblen)
+			op.ooblen = (len >> this->page_shift) * mtd->oobsize;
+			op.oobbuf = &buf[len];
+			res = mtd_read_oob(mtd, to + mtd->writesize, &op);
+			if (res < 0 || op.oobretlen != op.ooblen)
 				goto outerr;
 
 			/* Calc the byte offset in the buffer */

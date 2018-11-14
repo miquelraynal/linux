@@ -112,22 +112,22 @@ static int write_page(int log)
 static int rewrite_page(int log)
 {
 	int err = 0;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 
 	if (log)
 		pr_info("rewrite page\n");
 
-	ops.mode      = MTD_OPS_RAW; /* No ECC */
-	ops.len       = mtd->writesize;
-	ops.retlen    = 0;
-	ops.ooblen    = 0;
-	ops.oobretlen = 0;
-	ops.ooboffs   = 0;
-	ops.datbuf    = wbuffer;
-	ops.oobbuf    = NULL;
+	op.mode      = MTD_OPS_RAW; /* No ECC */
+	op.len       = mtd->writesize;
+	op.retlen    = 0;
+	op.ooblen    = 0;
+	op.oobretlen = 0;
+	op.ooboffs   = 0;
+	op.datbuf    = wbuffer;
+	op.oobbuf    = NULL;
 
-	err = mtd_write_oob(mtd, offset, &ops);
-	if (err || ops.retlen != mtd->writesize) {
+	err = mtd_write_oob(mtd, offset, &op);
+	if (err || op.retlen != mtd->writesize) {
 		pr_err("error: write_oob failed (%d)\n", err);
 		if (!err)
 			err = -EIO;

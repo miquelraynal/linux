@@ -1047,13 +1047,13 @@ int mtd_read(struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen,
 	if (mtd->_read) {
 		ret_code = mtd->_read(mtd, from, len, retlen, buf);
 	} else if (mtd->_read_oob) {
-		struct mtd_oob_ops ops = {
+		struct mtd_io_op op = {
 			.len = len,
 			.datbuf = buf,
 		};
 
-		ret_code = mtd->_read_oob(mtd, from, &ops);
-		*retlen = ops.retlen;
+		ret_code = mtd->_read_oob(mtd, from, &op);
+		*retlen = op.retlen;
 	} else {
 		return -ENOTSUPP;
 	}
@@ -1080,14 +1080,14 @@ int mtd_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 	ledtrig_mtd_activity();
 
 	if (!mtd->_write) {
-		struct mtd_oob_ops ops = {
+		struct mtd_io_op op = {
 			.len = len,
 			.datbuf = (u8 *)buf,
 		};
 		int ret;
 
-		ret = mtd->_write_oob(mtd, to, &ops);
-		*retlen = ops.retlen;
+		ret = mtd->_write_oob(mtd, to, &op);
+		*retlen = op.retlen;
 		return ret;
 	}
 
@@ -1119,61 +1119,61 @@ int mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 EXPORT_SYMBOL_GPL(mtd_panic_write);
 
 static int mtd_check_oob_ops(struct mtd_info *mtd, loff_t offs,
-			     struct mtd_oob_ops *ops)
+			     struct mtd_io_op *op)
 {
 	/*
 	 * Some users are setting ->datbuf or ->oobbuf to NULL, but are leaving
 	 * ->len or ->ooblen uninitialized. Force ->len and ->ooblen to 0 in
 	 *  this case.
 	 */
-	if (!ops->datbuf)
-		ops->len = 0;
+	if (!op->datbuf)
+		op->len = 0;
 
-	if (!ops->oobbuf)
-		ops->ooblen = 0;
+	if (!op->oobbuf)
+		op->ooblen = 0;
 
-	if (offs < 0 || offs + ops->len > mtd->size)
+	if (offs < 0 || offs + op->len > mtd->size)
 		return -EINVAL;
 
-	if (ops->ooblen) {
+	if (op->ooblen) {
 		u64 maxooblen;
 
-		if (ops->ooboffs >= mtd_oobavail(mtd, ops))
+		if (op->ooboffs >= mtd_oobavail(mtd, op))
 			return -EINVAL;
 
 		maxooblen = ((mtd_div_by_ws(mtd->size, mtd) -
 			      mtd_div_by_ws(offs, mtd)) *
-			     mtd_oobavail(mtd, ops)) - ops->ooboffs;
-		if (ops->ooblen > maxooblen)
+			     mtd_oobavail(mtd, op)) - op->ooboffs;
+		if (op->ooblen > maxooblen)
 			return -EINVAL;
 	}
 
 	return 0;
 }
 
-int mtd_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_oob_ops *ops)
+int mtd_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_io_op *op)
 {
 	int ret_code;
-	ops->retlen = ops->oobretlen = 0;
+	op->retlen = op->oobretlen = 0;
 
-	ret_code = mtd_check_oob_ops(mtd, from, ops);
+	ret_code = mtd_check_oob_ops(mtd, from, op);
 	if (ret_code)
 		return ret_code;
 
 	ledtrig_mtd_activity();
 
 	/* Check the validity of a potential fallback on mtd->_read */
-	if (!mtd->_read_oob && (!mtd->_read || ops->oobbuf))
+	if (!mtd->_read_oob && (!mtd->_read || op->oobbuf))
 		return -EOPNOTSUPP;
 
 	if (mtd->_read_oob)
-		ret_code = mtd->_read_oob(mtd, from, ops);
+		ret_code = mtd->_read_oob(mtd, from, op);
 	else
-		ret_code = mtd->_read(mtd, from, ops->len, &ops->retlen,
-				      ops->datbuf);
+		ret_code = mtd->_read(mtd, from, op->len, &op->retlen,
+				      op->datbuf);
 
 	/*
-	 * In cases where ops->datbuf != NULL, mtd->_read_oob() has semantics
+	 * In cases where op->datbuf != NULL, mtd->_read_oob() has semantics
 	 * similar to mtd->_read(), returning a non-negative integer
 	 * representing max bitflips. In other cases, mtd->_read_oob() may
 	 * return -EUCLEAN. In all cases, perform similar logic to mtd_read().
@@ -1187,30 +1187,30 @@ int mtd_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_oob_ops *ops)
 EXPORT_SYMBOL_GPL(mtd_read_oob);
 
 int mtd_write_oob(struct mtd_info *mtd, loff_t to,
-				struct mtd_oob_ops *ops)
+				struct mtd_io_op *op)
 {
 	int ret;
 
-	ops->retlen = ops->oobretlen = 0;
+	op->retlen = op->oobretlen = 0;
 
 	if (!(mtd->flags & MTD_WRITEABLE))
 		return -EROFS;
 
-	ret = mtd_check_oob_ops(mtd, to, ops);
+	ret = mtd_check_oob_ops(mtd, to, op);
 	if (ret)
 		return ret;
 
 	ledtrig_mtd_activity();
 
 	/* Check the validity of a potential fallback on mtd->_write */
-	if (!mtd->_write_oob && (!mtd->_write || ops->oobbuf))
+	if (!mtd->_write_oob && (!mtd->_write || op->oobbuf))
 		return -EOPNOTSUPP;
 
 	if (mtd->_write_oob)
-		return mtd->_write_oob(mtd, to, ops);
+		return mtd->_write_oob(mtd, to, op);
 	else
-		return mtd->_write(mtd, to, ops->len, &ops->retlen,
-				   ops->datbuf);
+		return mtd->_write(mtd, to, op->len, &op->retlen,
+				   op->datbuf);
 }
 EXPORT_SYMBOL_GPL(mtd_write_oob);
 

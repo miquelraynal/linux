@@ -97,15 +97,15 @@ static int sharpsl_nand_check_ooblayout(struct mtd_info *mtd)
 
 static int sharpsl_nand_read_oob(struct mtd_info *mtd, loff_t offs, u8 *buf)
 {
-	struct mtd_oob_ops ops = { };
+	struct mtd_io_op op = { };
 	int ret;
 
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ops.ooblen = mtd->oobsize;
-	ops.oobbuf = buf;
+	op.mode = MTD_OPS_PLACE_OOB;
+	op.ooblen = mtd->oobsize;
+	op.oobbuf = buf;
 
-	ret = mtd_read_oob(mtd, offs, &ops);
-	if (ret != 0 || mtd->oobsize != ops.oobretlen)
+	ret = mtd_read_oob(mtd, offs, &op);
+	if (ret != 0 || mtd->oobsize != op.oobretlen)
 		return -1;
 
 	return 0;

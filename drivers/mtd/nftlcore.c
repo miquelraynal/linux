@@ -137,17 +137,17 @@ int nftl_read_oob(struct mtd_info *mtd, loff_t offs, size_t len,
 		  size_t *retlen, uint8_t *buf)
 {
 	loff_t mask = mtd->writesize - 1;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int res;
 
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ops.ooboffs = offs & mask;
-	ops.ooblen = len;
-	ops.oobbuf = buf;
-	ops.datbuf = NULL;
+	op.mode = MTD_OPS_PLACE_OOB;
+	op.ooboffs = offs & mask;
+	op.ooblen = len;
+	op.oobbuf = buf;
+	op.datbuf = NULL;
 
-	res = mtd_read_oob(mtd, offs & ~mask, &ops);
-	*retlen = ops.oobretlen;
+	res = mtd_read_oob(mtd, offs & ~mask, &op);
+	*retlen = op.oobretlen;
 	return res;
 }
 
@@ -158,17 +158,17 @@ int nftl_write_oob(struct mtd_info *mtd, loff_t offs, size_t len,
 		   size_t *retlen, uint8_t *buf)
 {
 	loff_t mask = mtd->writesize - 1;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int res;
 
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ops.ooboffs = offs & mask;
-	ops.ooblen = len;
-	ops.oobbuf = buf;
-	ops.datbuf = NULL;
+	op.mode = MTD_OPS_PLACE_OOB;
+	op.ooboffs = offs & mask;
+	op.ooblen = len;
+	op.oobbuf = buf;
+	op.datbuf = NULL;
 
-	res = mtd_write_oob(mtd, offs & ~mask, &ops);
-	*retlen = ops.oobretlen;
+	res = mtd_write_oob(mtd, offs & ~mask, &op);
+	*retlen = op.oobretlen;
 	return res;
 }
 
@@ -181,18 +181,18 @@ static int nftl_write(struct mtd_info *mtd, loff_t offs, size_t len,
 		      size_t *retlen, uint8_t *buf, uint8_t *oob)
 {
 	loff_t mask = mtd->writesize - 1;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int res;
 
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ops.ooboffs = offs & mask;
-	ops.ooblen = mtd->oobsize;
-	ops.oobbuf = oob;
-	ops.datbuf = buf;
-	ops.len = len;
+	op.mode = MTD_OPS_PLACE_OOB;
+	op.ooboffs = offs & mask;
+	op.ooblen = mtd->oobsize;
+	op.oobbuf = oob;
+	op.datbuf = buf;
+	op.len = len;
 
-	res = mtd_write_oob(mtd, offs & ~mask, &ops);
-	*retlen = ops.retlen;
+	res = mtd_write_oob(mtd, offs & ~mask, &op);
+	*retlen = op.retlen;
 	return res;
 }
 

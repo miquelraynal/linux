@@ -103,14 +103,14 @@ static int part_unpoint(struct mtd_info *mtd, loff_t from, size_t len)
 }
 
 static int part_read_oob(struct mtd_info *mtd, loff_t from,
-		struct mtd_oob_ops *ops)
+			 struct mtd_io_op *op)
 {
 	struct mtd_part *part = mtd_to_part(mtd);
 	struct mtd_ecc_stats stats;
 	int res;
 
 	stats = part->parent->ecc_stats;
-	res = part->parent->_read_oob(part->parent, from + part->offset, ops);
+	res = part->parent->_read_oob(part->parent, from + part->offset, op);
 	if (unlikely(mtd_is_eccerr(res)))
 		mtd->ecc_stats.failed +=
 			part->parent->ecc_stats.failed - stats.failed;
@@ -169,11 +169,11 @@ static int part_panic_write(struct mtd_info *mtd, loff_t to, size_t len,
 }
 
 static int part_write_oob(struct mtd_info *mtd, loff_t to,
-		struct mtd_oob_ops *ops)
+			  struct mtd_io_op *op)
 {
 	struct mtd_part *part = mtd_to_part(mtd);
 
-	return part->parent->_write_oob(part->parent, to + part->offset, ops);
+	return part->parent->_write_oob(part->parent, to + part->offset, op);
 }
 
 static int part_write_user_prot_reg(struct mtd_info *mtd, loff_t from,

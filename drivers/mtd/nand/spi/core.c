@@ -543,7 +543,7 @@ static int spinand_write_page(struct spinand_device *spinand,
 }
 
 static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
-			    struct mtd_oob_ops *ops)
+			    struct mtd_io_op *op)
 {
 	struct spinand_device *spinand = mtd_to_spinand(mtd);
 	struct nand_device *nand = mtd_to_nanddev(mtd);
@@ -553,12 +553,12 @@ static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
 	bool ecc_failed = false;
 	int ret = 0;
 
-	if (ops->mode != MTD_OPS_RAW && spinand->eccinfo.ooblayout)
+	if (op->mode != MTD_OPS_RAW && spinand->eccinfo.ooblayout)
 		enable_ecc = true;
 
 	mutex_lock(&spinand->lock);
 
-	nanddev_io_for_each_page(nand, from, ops, &iter) {
+	nanddev_io_for_each_page(nand, from, op, &iter) {
 		ret = spinand_select_target(spinand, iter.req.pos.target);
 		if (ret)
 			break;
@@ -580,8 +580,8 @@ static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
 			max_bitflips = max_t(unsigned int, max_bitflips, ret);
 		}
 
-		ops->retlen += iter.req.datalen;
-		ops->oobretlen += iter.req.ooblen;
+		op->retlen += iter.req.datalen;
+		op->oobretlen += iter.req.ooblen;
 	}
 
 	mutex_unlock(&spinand->lock);
@@ -593,7 +593,7 @@ static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
 }
 
 static int spinand_mtd_write(struct mtd_info *mtd, loff_t to,
-			     struct mtd_oob_ops *ops)
+			     struct mtd_io_op *op)
 {
 	struct spinand_device *spinand = mtd_to_spinand(mtd);
 	struct nand_device *nand = mtd_to_nanddev(mtd);
@@ -601,12 +601,12 @@ static int spinand_mtd_write(struct mtd_info *mtd, loff_t to,
 	bool enable_ecc = false;
 	int ret = 0;
 
-	if (ops->mode != MTD_OPS_RAW && mtd->ooblayout)
+	if (op->mode != MTD_OPS_RAW && mtd->ooblayout)
 		enable_ecc = true;
 
 	mutex_lock(&spinand->lock);
 
-	nanddev_io_for_each_page(nand, to, ops, &iter) {
+	nanddev_io_for_each_page(nand, to, op, &iter) {
 		ret = spinand_select_target(spinand, iter.req.pos.target);
 		if (ret)
 			break;
@@ -619,8 +619,8 @@ static int spinand_mtd_write(struct mtd_info *mtd, loff_t to,
 		if (ret)
 			break;
 
-		ops->retlen += iter.req.datalen;
-		ops->oobretlen += iter.req.ooblen;
+		op->retlen += iter.req.datalen;
+		op->oobretlen += iter.req.ooblen;
 	}
 
 	mutex_unlock(&spinand->lock);

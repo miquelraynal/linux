@@ -595,7 +595,7 @@ static inline void nanddev_pos_next_page(struct nand_device *nand,
  * layer.
  */
 static inline void nanddev_io_iter_init(struct nand_device *nand,
-					loff_t offs, struct mtd_oob_ops *req,
+					loff_t offs, struct mtd_io_op *req,
 					struct nand_io_iter *iter)
 {
 	struct mtd_info *mtd = nanddev_to_mtd(nand);

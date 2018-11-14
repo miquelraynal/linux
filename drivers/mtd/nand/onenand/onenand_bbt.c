@@ -61,7 +61,7 @@ static int create_bbt(struct mtd_info *mtd, uint8_t *buf, struct nand_bbt_descr 
 	int startblock;
 	loff_t from;
 	size_t readlen, ooblen;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int rgn;
 
 	printk(KERN_INFO "Scanning device for bad blocks\n");
@@ -80,10 +80,10 @@ static int create_bbt(struct mtd_info *mtd, uint8_t *buf, struct nand_bbt_descr 
 	startblock = 0;
 	from = 0;
 
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ops.ooblen = readlen;
-	ops.oobbuf = buf;
-	ops.len = ops.ooboffs = ops.retlen = ops.oobretlen = 0;
+	op.mode = MTD_OPS_PLACE_OOB;
+	op.ooblen = readlen;
+	op.oobbuf = buf;
+	op.len = op.ooboffs = op.retlen = op.oobretlen = 0;
 
 	for (i = startblock; i < numblocks; ) {
 		int ret;
@@ -92,7 +92,7 @@ static int create_bbt(struct mtd_info *mtd, uint8_t *buf, struct nand_bbt_descr 
 			/* No need to read pages fully,
 			 * just read required OOB bytes */
 			ret = onenand_bbt_read_oob(mtd,
-				from + j * this->writesize + bd->offs, &ops);
+				from + j * this->writesize + bd->offs, &op);
 
 			/* If it is a initial bad block, just ignore it */
 			if (ret == ONENAND_BBT_READ_FATAL_ERROR)

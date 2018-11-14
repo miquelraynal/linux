@@ -308,9 +308,9 @@ static int mtdswap_handle_write_error(struct mtdswap_dev *d, struct swap_eb *eb)
 }
 
 static int mtdswap_read_oob(struct mtdswap_dev *d, loff_t from,
-			struct mtd_oob_ops *ops)
+			    struct mtd_io_op *op)
 {
-	int ret = mtd_read_oob(d->mtd, from, ops);
+	int ret = mtd_read_oob(d->mtd, from, op);
 
 	if (mtd_is_bitflip(ret))
 		return ret;
@@ -321,10 +321,10 @@ static int mtdswap_read_oob(struct mtdswap_dev *d, loff_t from,
 		return ret;
 	}
 
-	if (ops->oobretlen < ops->ooblen) {
+	if (op->oobretlen < op->ooblen) {
 		dev_warn(d->dev, "Read OOB return short read (%zd bytes not "
 			"%zd) for block at %08llx\n",
-			ops->oobretlen, ops->ooblen, from);
+			op->oobretlen, op->ooblen, from);
 		return -EIO;
 	}
 
@@ -336,7 +336,7 @@ static int mtdswap_read_markers(struct mtdswap_dev *d, struct swap_eb *eb)
 	struct mtdswap_oobdata *data, *data2;
 	int ret;
 	loff_t offset;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 
 	offset = mtdswap_eb_offset(d, eb);
 
@@ -344,13 +344,13 @@ static int mtdswap_read_markers(struct mtdswap_dev *d, struct swap_eb *eb)
 	if (mtd_can_have_bb(d->mtd) && mtd_block_isbad(d->mtd, offset))
 		return MTDSWAP_SCANNED_BAD;
 
-	ops.ooblen = 2 * d->mtd->oobavail;
-	ops.oobbuf = d->oob_buf;
-	ops.ooboffs = 0;
-	ops.datbuf = NULL;
-	ops.mode = MTD_OPS_AUTO_OOB;
+	op.ooblen = 2 * d->mtd->oobavail;
+	op.oobbuf = d->oob_buf;
+	op.ooboffs = 0;
+	op.datbuf = NULL;
+	op.mode = MTD_OPS_AUTO_OOB;
 
-	ret = mtdswap_read_oob(d, offset, &ops);
+	ret = mtdswap_read_oob(d, offset, &op);
 
 	if (ret && !mtd_is_bitflip(ret))
 		return ret;
@@ -383,25 +383,25 @@ static int mtdswap_write_marker(struct mtdswap_dev *d, struct swap_eb *eb,
 	struct mtdswap_oobdata n;
 	int ret;
 	loff_t offset;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 
-	ops.ooboffs = 0;
-	ops.oobbuf = (uint8_t *)&n;
-	ops.mode = MTD_OPS_AUTO_OOB;
-	ops.datbuf = NULL;
+	op.ooboffs = 0;
+	op.oobbuf = (uint8_t *)&n;
+	op.mode = MTD_OPS_AUTO_OOB;
+	op.datbuf = NULL;
 
 	if (marker == MTDSWAP_TYPE_CLEAN) {
 		n.magic = cpu_to_le16(MTDSWAP_MAGIC_CLEAN);
 		n.count = cpu_to_le32(eb->erase_count);
-		ops.ooblen = MTDSWAP_OOBSIZE;
+		op.ooblen = MTDSWAP_OOBSIZE;
 		offset = mtdswap_eb_offset(d, eb);
 	} else {
 		n.magic = cpu_to_le16(MTDSWAP_MAGIC_DIRTY);
-		ops.ooblen = sizeof(n.magic);
+		op.ooblen = sizeof(n.magic);
 		offset = mtdswap_eb_offset(d, eb) + d->mtd->writesize;
 	}
 
-	ret = mtd_write_oob(d->mtd, offset, &ops);
+	ret = mtd_write_oob(d->mtd, offset, &op);
 
 	if (ret) {
 		dev_warn(d->dev, "Write OOB failed for block at %08llx "
@@ -411,10 +411,10 @@ static int mtdswap_write_marker(struct mtdswap_dev *d, struct swap_eb *eb,
 		return ret;
 	}
 
-	if (ops.oobretlen != ops.ooblen) {
+	if (op.oobretlen != op.ooblen) {
 		dev_warn(d->dev, "Short OOB write for block at %08llx: "
 			"%zd not %zd\n",
-			offset, ops.oobretlen, ops.ooblen);
+			offset, op.oobretlen, op.ooblen);
 		return ret;
 	}
 
@@ -892,15 +892,15 @@ static unsigned int mtdswap_eblk_passes(struct mtdswap_dev *d,
 	loff_t base, pos;
 	unsigned int *p1 = (unsigned int *)d->page_buf;
 	unsigned char *p2 = (unsigned char *)d->oob_buf;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int ret;
 
-	ops.mode = MTD_OPS_AUTO_OOB;
-	ops.len = mtd->writesize;
-	ops.ooblen = mtd->oobavail;
-	ops.ooboffs = 0;
-	ops.datbuf = d->page_buf;
-	ops.oobbuf = d->oob_buf;
+	op.mode = MTD_OPS_AUTO_OOB;
+	op.len = mtd->writesize;
+	op.ooblen = mtd->oobavail;
+	op.ooboffs = 0;
+	op.datbuf = d->page_buf;
+	op.oobbuf = d->oob_buf;
 	base = mtdswap_eb_offset(d, eb);
 	mtd_pages = d->pages_per_eblk * PAGE_SIZE / mtd->writesize;
 
@@ -910,7 +910,7 @@ static unsigned int mtdswap_eblk_passes(struct mtdswap_dev *d,
 			patt = mtdswap_test_patt(test + i);
 			memset(d->page_buf, patt, mtd->writesize);
 			memset(d->oob_buf, patt, mtd->oobavail);
-			ret = mtd_write_oob(mtd, pos, &ops);
+			ret = mtd_write_oob(mtd, pos, &op);
 			if (ret)
 				goto error;
 
@@ -919,7 +919,7 @@ static unsigned int mtdswap_eblk_passes(struct mtdswap_dev *d,
 
 		pos = base;
 		for (i = 0; i < mtd_pages; i++) {
-			ret = mtd_read_oob(mtd, pos, &ops);
+			ret = mtd_read_oob(mtd, pos, &op);
 			if (ret)
 				goto error;
 

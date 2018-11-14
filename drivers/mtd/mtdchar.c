@@ -188,15 +188,15 @@ static ssize_t mtdchar_read(struct file *file, char __user *buf, size_t count,
 			break;
 		case MTD_FILE_MODE_RAW:
 		{
-			struct mtd_oob_ops ops;
+			struct mtd_io_op op;
 
-			ops.mode = MTD_OPS_RAW;
-			ops.datbuf = kbuf;
-			ops.oobbuf = NULL;
-			ops.len = len;
+			op.mode = MTD_OPS_RAW;
+			op.datbuf = kbuf;
+			op.oobbuf = NULL;
+			op.len = len;
 
-			ret = mtd_read_oob(mtd, *ppos, &ops);
-			retlen = ops.retlen;
+			ret = mtd_read_oob(mtd, *ppos, &op);
+			retlen = op.retlen;
 			break;
 		}
 		default:
@@ -282,16 +282,16 @@ static ssize_t mtdchar_write(struct file *file, const char __user *buf, size_t c
 
 		case MTD_FILE_MODE_RAW:
 		{
-			struct mtd_oob_ops ops;
+			struct mtd_io_op op;
 
-			ops.mode = MTD_OPS_RAW;
-			ops.datbuf = kbuf;
-			ops.oobbuf = NULL;
-			ops.ooboffs = 0;
-			ops.len = len;
+			op.mode = MTD_OPS_RAW;
+			op.datbuf = kbuf;
+			op.oobbuf = NULL;
+			op.ooboffs = 0;
+			op.len = len;
 
-			ret = mtd_write_oob(mtd, *ppos, &ops);
-			retlen = ops.retlen;
+			ret = mtd_write_oob(mtd, *ppos, &op);
+			retlen = op.retlen;
 			break;
 		}
 
@@ -364,7 +364,7 @@ static int mtdchar_writeoob(struct file *file, struct mtd_info *mtd,
 	uint32_t __user *retp)
 {
 	struct mtd_file_info *mfi = file->private_data;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	uint32_t retlen;
 	int ret = 0;
 
@@ -377,29 +377,29 @@ static int mtdchar_writeoob(struct file *file, struct mtd_info *mtd,
 	if (!mtd->_write_oob)
 		return -EOPNOTSUPP;
 
-	ops.ooblen = length;
-	ops.ooboffs = start & (mtd->writesize - 1);
-	ops.datbuf = NULL;
-	ops.mode = (mfi->mode == MTD_FILE_MODE_RAW) ? MTD_OPS_RAW :
-		MTD_OPS_PLACE_OOB;
+	op.ooblen = length;
+	op.ooboffs = start & (mtd->writesize - 1);
+	op.datbuf = NULL;
+	op.mode = (mfi->mode == MTD_FILE_MODE_RAW) ? MTD_OPS_RAW :
+						     MTD_OPS_PLACE_OOB;
 
-	if (ops.ooboffs && ops.ooblen > (mtd->oobsize - ops.ooboffs))
+	if (op.ooboffs && op.ooblen > (mtd->oobsize - op.ooboffs))
 		return -EINVAL;
 
-	ops.oobbuf = memdup_user(ptr, length);
-	if (IS_ERR(ops.oobbuf))
-		return PTR_ERR(ops.oobbuf);
+	op.oobbuf = memdup_user(ptr, length);
+	if (IS_ERR(op.oobbuf))
+		return PTR_ERR(op.oobbuf);
 
 	start &= ~((uint64_t)mtd->writesize - 1);
-	ret = mtd_write_oob(mtd, start, &ops);
+	ret = mtd_write_oob(mtd, start, &op);
 
-	if (ops.oobretlen > 0xFFFFFFFFU)
+	if (op.oobretlen > 0xFFFFFFFFU)
 		ret = -EOVERFLOW;
-	retlen = ops.oobretlen;
+	retlen = op.oobretlen;
 	if (copy_to_user(retp, &retlen, sizeof(length)))
 		ret = -EFAULT;
 
-	kfree(ops.oobbuf);
+	kfree(op.oobbuf);
 	return ret;
 }
 
@@ -408,35 +408,35 @@ static int mtdchar_readoob(struct file *file, struct mtd_info *mtd,
 	uint32_t __user *retp)
 {
 	struct mtd_file_info *mfi = file->private_data;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int ret = 0;
 
 	if (length > 4096)
 		return -EINVAL;
 
-	ops.ooblen = length;
-	ops.ooboffs = start & (mtd->writesize - 1);
-	ops.datbuf = NULL;
-	ops.mode = (mfi->mode == MTD_FILE_MODE_RAW) ? MTD_OPS_RAW :
-		MTD_OPS_PLACE_OOB;
+	op.ooblen = length;
+	op.ooboffs = start & (mtd->writesize - 1);
+	op.datbuf = NULL;
+	op.mode = (mfi->mode == MTD_FILE_MODE_RAW) ? MTD_OPS_RAW :
+						     MTD_OPS_PLACE_OOB;
 
-	if (ops.ooboffs && ops.ooblen > (mtd->oobsize - ops.ooboffs))
+	if (op.ooboffs && op.ooblen > (mtd->oobsize - op.ooboffs))
 		return -EINVAL;
 
-	ops.oobbuf = kmalloc(length, GFP_KERNEL);
-	if (!ops.oobbuf)
+	op.oobbuf = kmalloc(length, GFP_KERNEL);
+	if (!op.oobbuf)
 		return -ENOMEM;
 
 	start &= ~((uint64_t)mtd->writesize - 1);
-	ret = mtd_read_oob(mtd, start, &ops);
+	ret = mtd_read_oob(mtd, start, &op);
 
-	if (put_user(ops.oobretlen, retp))
+	if (put_user(op.oobretlen, retp))
 		ret = -EFAULT;
-	else if (ops.oobretlen && copy_to_user(ptr, ops.oobbuf,
-					    ops.oobretlen))
+	else if (op.oobretlen && copy_to_user(ptr, op.oobbuf,
+					      op.oobretlen))
 		ret = -EFAULT;
 
-	kfree(ops.oobbuf);
+	kfree(op.oobbuf);
 
 	/*
 	 * NAND returns -EBADMSG on ECC errors, but it returns the OOB
@@ -601,7 +601,7 @@ static int mtdchar_write_ioctl(struct mtd_info *mtd,
 		struct mtd_write_req __user *argp)
 {
 	struct mtd_write_req req;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	const void __user *usr_data, *usr_oob;
 	int ret;
 
@@ -614,33 +614,33 @@ static int mtdchar_write_ioctl(struct mtd_info *mtd,
 	if (!mtd->_write_oob)
 		return -EOPNOTSUPP;
 
-	ops.mode = req.mode;
-	ops.len = (size_t)req.len;
-	ops.ooblen = (size_t)req.ooblen;
-	ops.ooboffs = 0;
+	op.mode = req.mode;
+	op.len = (size_t)req.len;
+	op.ooblen = (size_t)req.ooblen;
+	op.ooboffs = 0;
 
 	if (usr_data) {
-		ops.datbuf = memdup_user(usr_data, ops.len);
-		if (IS_ERR(ops.datbuf))
-			return PTR_ERR(ops.datbuf);
+		op.datbuf = memdup_user(usr_data, op.len);
+		if (IS_ERR(op.datbuf))
+			return PTR_ERR(op.datbuf);
 	} else {
-		ops.datbuf = NULL;
+		op.datbuf = NULL;
 	}
 
 	if (usr_oob) {
-		ops.oobbuf = memdup_user(usr_oob, ops.ooblen);
-		if (IS_ERR(ops.oobbuf)) {
-			kfree(ops.datbuf);
-			return PTR_ERR(ops.oobbuf);
+		op.oobbuf = memdup_user(usr_oob, op.ooblen);
+		if (IS_ERR(op.oobbuf)) {
+			kfree(op.datbuf);
+			return PTR_ERR(op.oobbuf);
 		}
 	} else {
-		ops.oobbuf = NULL;
+		op.oobbuf = NULL;
 	}
 
-	ret = mtd_write_oob(mtd, (loff_t)req.start, &ops);
+	ret = mtd_write_oob(mtd, (loff_t)req.start, &op);
 
-	kfree(ops.datbuf);
-	kfree(ops.oobbuf);
+	kfree(op.datbuf);
+	kfree(op.oobbuf);
 
 	return ret;
 }

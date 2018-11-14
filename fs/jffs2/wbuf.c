@@ -1035,31 +1035,31 @@ int jffs2_check_oob_empty(struct jffs2_sb_info *c,
 {
 	int i, ret;
 	int cmlen = min_t(int, c->oobavail, OOB_CM_SIZE);
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 
-	ops.mode = MTD_OPS_AUTO_OOB;
-	ops.ooblen = NR_OOB_SCAN_PAGES * c->oobavail;
-	ops.oobbuf = c->oobbuf;
-	ops.len = ops.ooboffs = ops.retlen = ops.oobretlen = 0;
-	ops.datbuf = NULL;
+	op.mode = MTD_OPS_AUTO_OOB;
+	op.ooblen = NR_OOB_SCAN_PAGES * c->oobavail;
+	op.oobbuf = c->oobbuf;
+	op.len = op.ooboffs = op.retlen = op.oobretlen = 0;
+	op.datbuf = NULL;
 
-	ret = mtd_read_oob(c->mtd, jeb->offset, &ops);
-	if ((ret && !mtd_is_bitflip(ret)) || ops.oobretlen != ops.ooblen) {
+	ret = mtd_read_oob(c->mtd, jeb->offset, &op);
+	if ((ret && !mtd_is_bitflip(ret)) || op.oobretlen != op.ooblen) {
 		pr_err("cannot read OOB for EB at %08x, requested %zd bytes, read %zd bytes, error %d\n",
-		       jeb->offset, ops.ooblen, ops.oobretlen, ret);
+		       jeb->offset, op.ooblen, op.oobretlen, ret);
 		if (!ret || mtd_is_bitflip(ret))
 			ret = -EIO;
 		return ret;
 	}
 
-	for(i = 0; i < ops.ooblen; i++) {
+	for(i = 0; i < op.ooblen; i++) {
 		if (mode && i < cmlen)
 			/* Yeah, we know about the cleanmarker */
 			continue;
 
-		if (ops.oobbuf[i] != 0xFF) {
+		if (op.oobbuf[i] != 0xFF) {
 			jffs2_dbg(2, "Found %02x at %x in OOB for "
-				  "%08x\n", ops.oobbuf[i], i, jeb->offset);
+				  "%08x\n", op.oobbuf[i], i, jeb->offset);
 			return 1;
 		}
 	}
@@ -1076,19 +1076,19 @@ int jffs2_check_oob_empty(struct jffs2_sb_info *c,
 int jffs2_check_nand_cleanmarker(struct jffs2_sb_info *c,
 				 struct jffs2_eraseblock *jeb)
 {
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int ret, cmlen = min_t(int, c->oobavail, OOB_CM_SIZE);
 
-	ops.mode = MTD_OPS_AUTO_OOB;
-	ops.ooblen = cmlen;
-	ops.oobbuf = c->oobbuf;
-	ops.len = ops.ooboffs = ops.retlen = ops.oobretlen = 0;
-	ops.datbuf = NULL;
+	op.mode = MTD_OPS_AUTO_OOB;
+	op.ooblen = cmlen;
+	op.oobbuf = c->oobbuf;
+	op.len = op.ooboffs = op.retlen = op.oobretlen = 0;
+	op.datbuf = NULL;
 
-	ret = mtd_read_oob(c->mtd, jeb->offset, &ops);
-	if ((ret && !mtd_is_bitflip(ret)) || ops.oobretlen != ops.ooblen) {
+	ret = mtd_read_oob(c->mtd, jeb->offset, &op);
+	if ((ret && !mtd_is_bitflip(ret)) || op.oobretlen != op.ooblen) {
 		pr_err("cannot read OOB for EB at %08x, requested %zd bytes, read %zd bytes, error %d\n",
-		       jeb->offset, ops.ooblen, ops.oobretlen, ret);
+		       jeb->offset, op.ooblen, op.oobretlen, ret);
 		if (!ret || mtd_is_bitflip(ret))
 			ret = -EIO;
 		return ret;
@@ -1101,19 +1101,19 @@ int jffs2_write_nand_cleanmarker(struct jffs2_sb_info *c,
 				 struct jffs2_eraseblock *jeb)
 {
 	int ret;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int cmlen = min_t(int, c->oobavail, OOB_CM_SIZE);
 
-	ops.mode = MTD_OPS_AUTO_OOB;
-	ops.ooblen = cmlen;
-	ops.oobbuf = (uint8_t *)&oob_cleanmarker;
-	ops.len = ops.ooboffs = ops.retlen = ops.oobretlen = 0;
-	ops.datbuf = NULL;
+	op.mode = MTD_OPS_AUTO_OOB;
+	op.ooblen = cmlen;
+	op.oobbuf = (uint8_t *)&oob_cleanmarker;
+	op.len = op.ooboffs = op.retlen = op.oobretlen = 0;
+	op.datbuf = NULL;
 
-	ret = mtd_write_oob(c->mtd, jeb->offset, &ops);
-	if (ret || ops.oobretlen != ops.ooblen) {
+	ret = mtd_write_oob(c->mtd, jeb->offset, &op);
+	if (ret || op.oobretlen != op.ooblen) {
 		pr_err("cannot write OOB for EB at %08x, requested %zd bytes, read %zd bytes, error %d\n",
-		       jeb->offset, ops.ooblen, ops.oobretlen, ret);
+		       jeb->offset, op.ooblen, op.oobretlen, ret);
 		if (!ret)
 			ret = -EIO;
 		return ret;

@@ -166,17 +166,17 @@ static int read_physical_sector(struct mtd_info *mtd, uint8_t *sect_buf,
 /* Read redundancy area (wrapper to MTD_READ_OOB */
 static int read_raw_oob(struct mtd_info *mtd, loff_t offs, uint8_t *buf)
 {
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	int ret;
 
-	ops.mode = MTD_OPS_RAW;
-	ops.ooboffs = 0;
-	ops.ooblen = OOB_SIZE;
-	ops.oobbuf = buf;
-	ops.datbuf = NULL;
+	op.mode = MTD_OPS_RAW;
+	op.ooboffs = 0;
+	op.ooblen = OOB_SIZE;
+	op.oobbuf = buf;
+	op.datbuf = NULL;
 
-	ret = mtd_read_oob(mtd, offs, &ops);
-	if (ret < 0 || ops.oobretlen != OOB_SIZE)
+	ret = mtd_read_oob(mtd, offs, &op);
+	if (ret < 0 || op.oobretlen != OOB_SIZE)
 		return -1;
 
 	return 0;

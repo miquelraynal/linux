@@ -243,7 +243,7 @@ static int sm_read_sector(struct sm_ftl *ftl,
 			  uint8_t *buffer, struct sm_oob *oob)
 {
 	struct mtd_info *mtd = ftl->trans->mtd;
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	struct sm_oob tmp_oob;
 	int ret = -EIO;
 	int try = 0;
@@ -258,12 +258,12 @@ static int sm_read_sector(struct sm_ftl *ftl,
 	if (!oob)
 		oob = &tmp_oob;
 
-	ops.mode = ftl->smallpagenand ? MTD_OPS_RAW : MTD_OPS_PLACE_OOB;
-	ops.ooboffs = 0;
-	ops.ooblen = SM_OOB_SIZE;
-	ops.oobbuf = (void *)oob;
-	ops.len = SM_SECTOR_SIZE;
-	ops.datbuf = buffer;
+	op.mode = ftl->smallpagenand ? MTD_OPS_RAW : MTD_OPS_PLACE_OOB;
+	op.ooboffs = 0;
+	op.ooblen = SM_OOB_SIZE;
+	op.oobbuf = (void *)oob;
+	op.len = SM_SECTOR_SIZE;
+	op.datbuf = buffer;
 
 again:
 	if (try++) {
@@ -280,7 +280,7 @@ again:
 
 	/* Unfortunately, oob read will _always_ succeed,
 		despite card removal..... */
-	ret = mtd_read_oob(mtd, sm_mkoffset(ftl, zone, block, boffset), &ops);
+	ret = mtd_read_oob(mtd, sm_mkoffset(ftl, zone, block, boffset), &op);
 
 	/* Test for unknown errors */
 	if (ret != 0 && !mtd_is_bitflip_or_eccerr(ret)) {
@@ -294,8 +294,8 @@ again:
 		goto again;
 
 	/* This should never happen, unless there is a bug in the mtd driver */
-	WARN_ON(ops.oobretlen != SM_OOB_SIZE);
-	WARN_ON(buffer && ops.retlen != SM_SECTOR_SIZE);
+	WARN_ON(op.oobretlen != SM_OOB_SIZE);
+	WARN_ON(buffer && op.retlen != SM_SECTOR_SIZE);
 
 	if (!buffer)
 		return 0;
@@ -324,7 +324,7 @@ static int sm_write_sector(struct sm_ftl *ftl,
 			   int zone, int block, int boffset,
 			   uint8_t *buffer, struct sm_oob *oob)
 {
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	struct mtd_info *mtd = ftl->trans->mtd;
 	int ret;
 
@@ -338,14 +338,14 @@ static int sm_write_sector(struct sm_ftl *ftl,
 	if (ftl->unstable)
 		return -EIO;
 
-	ops.mode = ftl->smallpagenand ? MTD_OPS_RAW : MTD_OPS_PLACE_OOB;
-	ops.len = SM_SECTOR_SIZE;
-	ops.datbuf = buffer;
-	ops.ooboffs = 0;
-	ops.ooblen = SM_OOB_SIZE;
-	ops.oobbuf = (void *)oob;
+	op.mode = ftl->smallpagenand ? MTD_OPS_RAW : MTD_OPS_PLACE_OOB;
+	op.len = SM_SECTOR_SIZE;
+	op.datbuf = buffer;
+	op.ooboffs = 0;
+	op.ooblen = SM_OOB_SIZE;
+	op.oobbuf = (void *)oob;
 
-	ret = mtd_write_oob(mtd, sm_mkoffset(ftl, zone, block, boffset), &ops);
+	ret = mtd_write_oob(mtd, sm_mkoffset(ftl, zone, block, boffset), &op);
 
 	/* Now we assume that hardware will catch write bitflip errors */
 
@@ -358,8 +358,8 @@ static int sm_write_sector(struct sm_ftl *ftl,
 	}
 
 	/* This should never happen, unless there is a bug in the driver */
-	WARN_ON(ops.oobretlen != SM_OOB_SIZE);
-	WARN_ON(buffer && ops.retlen != SM_SECTOR_SIZE);
+	WARN_ON(op.oobretlen != SM_OOB_SIZE);
+	WARN_ON(buffer && op.retlen != SM_SECTOR_SIZE);
 
 	return 0;
 }

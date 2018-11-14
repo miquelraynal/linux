@@ -102,7 +102,7 @@ static const struct mtd_ooblayout_ops oob_sm_small_ops = {
 static int sm_block_markbad(struct nand_chip *chip, loff_t ofs)
 {
 	struct mtd_info *mtd = nand_to_mtd(chip);
-	struct mtd_oob_ops ops;
+	struct mtd_io_op op;
 	struct sm_oob oob;
 	int ret;
 
@@ -111,15 +111,15 @@ static int sm_block_markbad(struct nand_chip *chip, loff_t ofs)
 
 	/* As long as this function is called on erase block boundaries
 		it will work correctly for 256 byte nand */
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ops.ooboffs = 0;
-	ops.ooblen = mtd->oobsize;
-	ops.oobbuf = (void *)&oob;
-	ops.datbuf = NULL;
+	op.mode = MTD_OPS_PLACE_OOB;
+	op.ooboffs = 0;
+	op.ooblen = mtd->oobsize;
+	op.oobbuf = (void *)&oob;
+	op.datbuf = NULL;
 
 
-	ret = mtd_write_oob(mtd, ofs, &ops);
-	if (ret < 0 || ops.oobretlen != SM_OOB_SIZE) {
+	ret = mtd_write_oob(mtd, ofs, &op);
+	if (ret < 0 || op.oobretlen != SM_OOB_SIZE) {
 		pr_notice("sm_common: can't mark sector at %i as bad\n",
 			  (int)ofs);
 		return -EIO;
