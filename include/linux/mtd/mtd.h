@@ -54,6 +54,8 @@ struct mtd_erase_region_info {
 
 /**
  * struct mtd_io_op - oob operation operands
+ * @read:	the I/O transfer is a read (otherwise it is a write)
+ * @pos:	position in the flash to read from/write to
  * @mode:	operation mode
  *
  * @len:	number of data bytes to write/read
@@ -74,6 +76,8 @@ struct mtd_erase_region_info {
  * request crosses a page boundary.
  */
 struct mtd_io_op {
+	bool		read;
+	loff_t		pos;
 	unsigned int	mode;
 	size_t		len;
 	size_t		retlen;
@@ -82,7 +86,10 @@ struct mtd_io_op {
 	uint32_t	ooboffs;
 	uint8_t		*datbuf;
 	uint8_t		*oobbuf;
+	unsigned int	flags;
 };
+
+#define MTD_BUFFER_DMA_SAFE	BIT(0)	/* The I/O operation can feature DMA */
 
 #define MTD_MAX_OOBFREE_ENTRIES_LARGE	32
 #define MTD_MAX_ECCPOS_ENTRIES_LARGE	640
