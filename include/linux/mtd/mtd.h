@@ -303,6 +303,7 @@ struct mtd_info {
 			  struct mtd_io_op *op);
 	int (*_write_oob) (struct mtd_info *mtd, loff_t to,
 			   struct mtd_io_op *op);
+	int (*_do_io) (struct mtd_info *mtd, struct mtd_io_op *op);
 	int (*_get_fact_prot_info) (struct mtd_info *mtd, size_t len,
 				    size_t *retlen, struct otp_info *buf);
 	int (*_read_fact_prot_reg) (struct mtd_info *mtd, loff_t from,

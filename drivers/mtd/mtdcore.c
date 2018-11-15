@@ -1177,13 +1177,23 @@ int mtd_do_io(struct mtd_info *mtd, struct mtd_io_op *op)
 	ledtrig_mtd_activity();
 
 	/* Do the I/O operation */
-	if (op->read) {
+	if (mtd->_do_io) {
+		ret = mtd->_do_io(mtd, op);
+	} else if (op->read) {
 		if (mtd->_read_oob)
 			ret = mtd->_read_oob(mtd, op->pos, op);
 		else
 			ret = mtd->_read(mtd, op->pos, op->len, &op->retlen,
 					 op->datbuf);
+	} else {
+		if (mtd->_write_oob)
+			ret = mtd->_write_oob(mtd, op->pos, op);
+		else
+			ret = mtd->_write(mtd, op->pos, op->len, &op->retlen,
+					  op->datbuf);
+	}
 
+	if (op->read) {
 		/*
 		 * In cases where op->datbuf != NULL, mtd->_read_oob() has
 		 * semantics similar to mtd->_read(), returning a non-negative
@@ -1199,12 +1209,6 @@ int mtd_do_io(struct mtd_info *mtd, struct mtd_io_op *op)
 			return 0;
 
 		ret = (ret >= mtd->bitflip_threshold) ? -EUCLEAN : 0;
-	} else {
-		if (mtd->_write_oob)
-			ret = mtd->_write_oob(mtd, op->pos, op);
-		else
-			ret = mtd->_write(mtd, op->pos, op->len, &op->retlen,
-					  op->datbuf);
 	}
 
 	return ret;
