@@ -112,6 +112,9 @@ EXPORT_SYMBOL(of_clk_get_by_name);
 
 #else /* defined(CONFIG_OF) && defined(CONFIG_COMMON_CLK) */
 
+void clk_link_consumer(struct device *consumer, struct clk *clk) {}
+void clk_unlink_consumer(struct clk *clk) {}
+
 static struct clk *__of_clk_get_by_name(struct device_node *np,
 					const char *dev_id,
 					const char *name)
@@ -194,20 +197,27 @@ EXPORT_SYMBOL(clk_get_sys);
 struct clk *clk_get(struct device *dev, const char *con_id)
 {
 	const char *dev_id = dev ? dev_name(dev) : NULL;
-	struct clk *clk;
+	struct clk *clk = NULL;
 
 	if (dev && dev->of_node) {
 		clk = __of_clk_get_by_name(dev->of_node, dev_id, con_id);
-		if (!IS_ERR(clk) || PTR_ERR(clk) == -EPROBE_DEFER)
+		if (PTR_ERR(clk) == -EPROBE_DEFER)
 			return clk;
 	}
 
-	return clk_get_sys(dev_id, con_id);
+	if (IS_ERR_OR_NULL(clk))
+		clk = clk_get_sys(dev_id, con_id);
+
+	if (!IS_ERR(clk))
+		clk_link_consumer(dev, clk);
+
+	return clk;
 }
 EXPORT_SYMBOL(clk_get);
 
 void clk_put(struct clk *clk)
 {
+	clk_unlink_consumer(clk);
 	__clk_put(clk);
 }
 EXPORT_SYMBOL(clk_put);
