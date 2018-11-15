@@ -1118,8 +1118,7 @@ int mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len, size_t *retlen,
 }
 EXPORT_SYMBOL_GPL(mtd_panic_write);
 
-static int mtd_check_oob_ops(struct mtd_info *mtd, loff_t offs,
-			     struct mtd_io_op *op)
+static int mtd_check_io_op(struct mtd_info *mtd, struct mtd_io_op *op)
 {
 	/*
 	 * Some users are setting ->datbuf or ->oobbuf to NULL, but are leaving
@@ -1132,7 +1131,7 @@ static int mtd_check_oob_ops(struct mtd_info *mtd, loff_t offs,
 	if (!op->oobbuf)
 		op->ooblen = 0;
 
-	if (offs < 0 || offs + op->len > mtd->size)
+	if (op->pos < 0 || op->pos + op->len > mtd->size)
 		return -EINVAL;
 
 	if (op->ooblen) {
@@ -1142,7 +1141,7 @@ static int mtd_check_oob_ops(struct mtd_info *mtd, loff_t offs,
 			return -EINVAL;
 
 		maxooblen = ((mtd_div_by_ws(mtd->size, mtd) -
-			      mtd_div_by_ws(offs, mtd)) *
+			      mtd_div_by_ws(op->pos, mtd)) *
 			     mtd_oobavail(mtd, op)) - op->ooboffs;
 		if (op->ooblen > maxooblen)
 			return -EINVAL;
@@ -1151,66 +1150,88 @@ static int mtd_check_oob_ops(struct mtd_info *mtd, loff_t offs,
 	return 0;
 }
 
-int mtd_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_io_op *op)
-{
-	int ret_code;
-	op->retlen = op->oobretlen = 0;
-
-	ret_code = mtd_check_oob_ops(mtd, from, op);
-	if (ret_code)
-		return ret_code;
-
-	ledtrig_mtd_activity();
-
-	/* Check the validity of a potential fallback on mtd->_read */
-	if (!mtd->_read_oob && (!mtd->_read || op->oobbuf))
-		return -EOPNOTSUPP;
-
-	if (mtd->_read_oob)
-		ret_code = mtd->_read_oob(mtd, from, op);
-	else
-		ret_code = mtd->_read(mtd, from, op->len, &op->retlen,
-				      op->datbuf);
-
-	/*
-	 * In cases where op->datbuf != NULL, mtd->_read_oob() has semantics
-	 * similar to mtd->_read(), returning a non-negative integer
-	 * representing max bitflips. In other cases, mtd->_read_oob() may
-	 * return -EUCLEAN. In all cases, perform similar logic to mtd_read().
-	 */
-	if (unlikely(ret_code < 0))
-		return ret_code;
-	if (mtd->ecc_strength == 0)
-		return 0;	/* device lacks ecc */
-	return ret_code >= mtd->bitflip_threshold ? -EUCLEAN : 0;
-}
-EXPORT_SYMBOL_GPL(mtd_read_oob);
-
-int mtd_write_oob(struct mtd_info *mtd, loff_t to,
-				struct mtd_io_op *op)
+int mtd_do_io(struct mtd_info *mtd, struct mtd_io_op *op)
 {
 	int ret;
 
 	op->retlen = op->oobretlen = 0;
 
-	if (!(mtd->flags & MTD_WRITEABLE))
+	/* In case of writing, check the device is flagged writeable */
+	if (!op->read && !(mtd->flags & MTD_WRITEABLE))
 		return -EROFS;
 
-	ret = mtd_check_oob_ops(mtd, to, op);
+	/* Check the whole operation is doable */
+	ret = mtd_check_io_op(mtd, op);
 	if (ret)
 		return ret;
 
+	/* Check the validity of a potential fallback on mtd->_read/_write */
+	if (op->read) {
+		if (!mtd->_read_oob && (!mtd->_read || op->oobbuf))
+			return -EOPNOTSUPP;
+	} else {
+		if (!mtd->_write_oob && (!mtd->_write || op->oobbuf))
+			return -EOPNOTSUPP;
+	}
+
 	ledtrig_mtd_activity();
 
-	/* Check the validity of a potential fallback on mtd->_write */
-	if (!mtd->_write_oob && (!mtd->_write || op->oobbuf))
-		return -EOPNOTSUPP;
+	/* Do the I/O operation */
+	if (op->read) {
+		if (mtd->_read_oob)
+			ret = mtd->_read_oob(mtd, op->pos, op);
+		else
+			ret = mtd->_read(mtd, op->pos, op->len, &op->retlen,
+					 op->datbuf);
 
-	if (mtd->_write_oob)
-		return mtd->_write_oob(mtd, to, op);
-	else
-		return mtd->_write(mtd, to, op->len, &op->retlen,
-				   op->datbuf);
+		/*
+		 * In cases where op->datbuf != NULL, mtd->_read_oob() has
+		 * semantics similar to mtd->_read(), returning a non-negative
+		 * integer representing max bitflips. In other cases,
+		 * mtd->_read_oob() may return -EUCLEAN. In all cases, perform
+		 * similar logic to mtd_read().
+		 */
+		if (unlikely(ret < 0))
+			return ret;
+
+		/* Maybe the device lacks ECC */
+		if (mtd->ecc_strength == 0)
+			return 0;
+
+		ret = (ret >= mtd->bitflip_threshold) ? -EUCLEAN : 0;
+	} else {
+		if (mtd->_write_oob)
+			ret = mtd->_write_oob(mtd, op->pos, op);
+		else
+			ret = mtd->_write(mtd, op->pos, op->len, &op->retlen,
+					  op->datbuf);
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(mtd_do_io);
+
+int mtd_read_oob(struct mtd_info *mtd, loff_t from, struct mtd_io_op *op)
+{
+	struct mtd_io_op io_op = *op;
+
+	io_op.read = true;
+	io_op.pos = from;
+	io_op.flags &= ~MTD_BUFFER_DMA_SAFE;
+
+	return mtd_do_io(mtd, &io_op);
+}
+EXPORT_SYMBOL_GPL(mtd_read_oob);
+
+int mtd_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_io_op *op)
+{
+	struct mtd_io_op io_op = *op;
+
+	io_op.read = false;
+	io_op.pos = to;
+	io_op.flags &= ~MTD_BUFFER_DMA_SAFE;
+
+	return mtd_do_io(mtd, &io_op);
 }
 EXPORT_SYMBOL_GPL(mtd_write_oob);
 
