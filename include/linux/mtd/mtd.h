@@ -84,6 +84,156 @@ struct mtd_oob_ops {
 	uint8_t		*oobbuf;
 };
 
+/**
+ * enum mtd_io_req_dir - Possible directions for an MTD I/O request
+ *
+ * @MTD_IO_REQ_IN: From the device to the host
+ * @MTD_IO_REQ_OUT: From the host to the device
+ */
+enum mtd_io_req_dir {
+	MTD_IO_REQ_IN,
+	MTD_IO_REQ_OUT,
+};
+
+/**
+ * enum mtd_io_op_flags - Generic flags for an I/O request
+ *
+ * @MTD_IO_REQ_RAW: The request must be handled without any ECC correction
+ * @MTD_IO_REQ_DMA_SAFE: Buffers are DMA-safe
+ */
+enum mtd_io_req_flags {
+	MTD_IO_REQ_RAW = BIT(0),
+	MTD_IO_REQ_DMA_SAFE = BIT(1),
+};
+
+/**
+ * struct mtd_io - Description of an MTD I/O operation
+ *
+ * @len: Requested data transfert length
+ * @buf.in: Data buffer when reading from the device
+ * @buf.out: Data buffer when writing to the device
+ */
+struct mtd_io {
+	u64 len;
+	union {
+		void *in;
+		const void *out;
+	} buf;
+};
+
+#define MTD_IO_IN(_len, _buf)						\
+	{								\
+		.len = _len,						\
+		.buf.in = _buf,						\
+	}
+
+#define MTD_IO_OUT(_len, _buf)						\
+	{								\
+		.len = _len,						\
+		.buf.out = _buf,					\
+	}
+
+/**
+ * struct mtd_req_data - MTD main data I/O request structure
+ *
+ * @req: MTD I/O request structure
+ */
+struct mtd_io_req_data {
+	struct mtd_io io;
+};
+
+#define MTD_IO_REQ_DATA_IN(_len, _buf)					\
+	{								\
+		.io = MTD_IO_IN(_len, _buf),				\
+	}
+
+#define MTD_IO_REQ_DATA_OUT(_len, _buf)					\
+	{								\
+		.io = MTD_IO_OUT(_len, _buf),				\
+	}
+
+/**
+ * enum mtd_io_req_oob_placement - OOB placement
+ *
+ * @MTD_IO_REQ_OOB_PLACE: OOB data is placed at a particular offset
+ * @MTD_IO_REQ_OOB_AUTO: OOB data is automatically placed at the free areas
+ *			 which are defined by the internal ecclayout
+ */
+enum mtd_io_req_oob_placement {
+	MTD_IO_REQ_OOB_PLACE,
+	MTD_IO_REQ_OOB_AUTO,
+};
+
+/**
+ * struct mtd_io_req_oob - MTD OOB data I/O request structure
+ *
+ * @placement: The placement of the OOB data
+ * @offset: Offset of the OOB data in the OOB area (only relevant when
+ *          @placement is %MTD_IO_REQ_OOB_PLACE)
+ * @io: MTD I/O structure
+ */
+struct mtd_io_req_oob {
+	enum mtd_io_req_oob_placement placement;
+	u64 offset;
+	struct mtd_io io;
+};
+
+#define MTD_IO_REQ_OOB_IN(_pl, _off, _len, _buf)			\
+	{								\
+		.placement = _pl,					\
+		.offset = (_pl == MTD_IO_REQ_OOB_PLACE) ? _off : 0,	\
+		.io = MTD_IO_IN(_len, _buf),				\
+	}
+
+#define MTD_IO_REQ_OOB_OUT(_pl, _off, _len, _buf)			\
+	{								\
+		.placement = _pl,					\
+		.offset = (_pl == MTD_IO_REQ_OOB_PLACE) ? _off : 0,	\
+		.io = MTD_IO_OUT(_len, _buf),				\
+	}
+
+/**
+ * struct mtd_io_req - MTD I/O request structure
+ *
+ * @dir: Direction of the I/O from the host point of view
+ * @start: Requested data transfert start position (device side), in case of
+ *         OOB-only transfert, this is the page boundary address
+ * @data: Data operation (can be %NULL)
+ * @oob: OOB data operation (can be %NULL)
+ * @flags: Flags of type %mtd_io_req_flags
+ *
+ * Note, some MTD drivers do not allow you to write more than one OOB area at
+ * one go. If you try to do that on such an MTD device, -EINVAL will be
+ * returned. If you want to make your implementation portable on all kind of MTD
+ * devices you should split the write request into several sub-requests when the
+ * request crosses a page boundary.
+ */
+struct mtd_io_req {
+	enum mtd_io_req_dir dir;
+	u64 start;
+	struct mtd_io_req_data data;
+	struct mtd_io_req_oob oob;
+	u64 flags;
+};
+
+#define MTD_IO_REQ_IN(_start, _data, _oob, _flags)			\
+	{								\
+		.dir = MTD_IO_REQ_IN,					\
+		.start = _start,					\
+		.data = _data,						\
+		.oob = _oob,						\
+		.flags = _flags,					\
+	}
+
+#define MTD_IO_REQ_OUT(_start, _data, _oob, _flags)			\
+	{								\
+		.dir = MTD_IO_REQ_OUT,					\
+		.start = _start,					\
+		.data = _data,						\
+		.oob = _oob,						\
+		.flags = _flags,					\
+	}
+
 #define MTD_MAX_OOBFREE_ENTRIES_LARGE	32
 #define MTD_MAX_ECCPOS_ENTRIES_LARGE	640
 /**
