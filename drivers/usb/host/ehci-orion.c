@@ -182,6 +182,65 @@ static int ehci_orion_drv_reset(struct usb_hcd *hcd)
 	return ret;
 }
 
+static int __maybe_unused ehci_orion_drv_suspend(struct device *dev)
+{
+	struct usb_hcd *hcd = dev_get_drvdata(dev);
+	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
+	int ret;
+
+	printk("%s [%d]\n", __func__, __LINE__);
+	ehci_prepare_ports_for_controller_suspend(ehci,
+						  device_may_wakeup(dev));
+
+//	ehci_orion->usb_ctrl = ioread32be(non_ehci + ORION_SOC_USB_CTRL);
+
+	ret = ehci_suspend(hcd, false);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int __maybe_unused ehci_orion_drv_resume(struct device *dev)
+{
+	struct usb_hcd *hcd = dev_get_drvdata(dev);
+	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
+//	int ret;
+	printk("%s [%d]\n", __func__, __LINE__);
+
+	ehci_prepare_ports_for_controller_resume(ehci);
+
+	usb_root_hub_lost_power(hcd->self.root_hub);
+
+	/* Restore USB PHY settings and enable the controller. */
+//	iowrite32be(ehci_orion->usb_ctrl, non_ehci + ORION_SOC_USB_CTRL);
+
+//	ehci_reset(ehci);
+//	ehci_orion_drv_reset(hcd);
+	ehci_resume(hcd, false);
+
+	return 0;
+}
+
+static int __maybe_unused ehci_orion_drv_restore(struct device *dev)
+{
+	struct usb_hcd *hcd = dev_get_drvdata(dev);
+
+	printk("%s [%d]\n", __func__, __LINE__);
+	usb_root_hub_lost_power(hcd->self.root_hub);
+
+	return 0;
+}
+
+//static SIMPLE_DEV_PM_OPS(ehci_atmel_pm_ops, ehci_atmel_drv_suspend,
+//					ehci_atmel_drv_resume);
+
+static const struct dev_pm_ops ehci_orion_pm_ops = {
+	.suspend = ehci_orion_drv_suspend,
+	.resume = ehci_orion_drv_resume,
+	.restore = ehci_orion_drv_restore,
+};
+
 static const struct ehci_driver_overrides orion_overrides __initconst = {
 	.extra_priv_size =	sizeof(struct orion_ehci_hcd),
 	.reset = ehci_orion_drv_reset,
@@ -354,6 +413,7 @@ static struct platform_driver ehci_orion_driver = {
 	.driver = {
 		.name	= "orion-ehci",
 		.of_match_table = ehci_orion_dt_ids,
+		.pm = &ehci_orion_pm_ops,
 	},
 };
 
