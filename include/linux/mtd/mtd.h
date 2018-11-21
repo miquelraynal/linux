@@ -234,6 +234,53 @@ struct mtd_io_req {
 		.flags = _flags,					\
 	}
 
+/**
+ * struct mtd_io_read_stats - Statistics attached to an I/O read request
+ *
+ * @max_bitflips: The maximum number of bitflips found in the read portion.
+ *		  This information can be used to decide when the data stored
+ *		  on a specific portion should be moved somewhere else to
+ *		  avoid data loss.
+ * @corrected_bitflips: The number of bitflips corrected during the read
+ *			operation
+ * @uncorrectable_errors: The number of uncorrectable errors that happened
+ *			  during the read operation
+ */
+struct mtd_io_read_stats {
+	u32 max_bitflips;
+	u32 corrected_bitflips;
+	u32 uncorrectable_errors;
+};
+
+/**
+ * struct mtd_io_write_stats - Statistics attached to an I/O write request
+ *
+ * @new_bad_blocks: Number of blocks declared bad during the write operation
+ */
+struct mtd_io_write_stats {
+	u32 new_bad_blocks;
+};
+
+/**
+ * struct mtd_io_req_feedback - Feedback from the execution of an I/O request
+ *
+ * @data_ret_len: The length of the data read/written
+ * @oob_ret_len: The length of the OOB data read/written
+ * @stats.read: Statistics about the read operation
+ * @stats.write: Statistics about the write operation
+ * @crossed_bad_blocks: Number of bad blocks that have been met (includes
+ *                      @stats.write.new_bad_blocks, if any)
+ */
+struct mtd_io_req_feedback {
+	u64 data_ret_len;
+	u64 oob_ret_len;
+	union {
+		struct mtd_io_read_stats read;
+		struct mtd_io_write_stats write;
+	} stats;
+	u32 crossed_bad_blocks;
+};
+
 #define MTD_MAX_OOBFREE_ENTRIES_LARGE	32
 #define MTD_MAX_ECCPOS_ENTRIES_LARGE	640
 /**
