@@ -47,6 +47,8 @@
 &pcie0 {
 	status = "okay";
 	phys = <&comphy1 0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie_card_reset_pins>;
 };
 
 /* J6 */
