@@ -295,6 +295,10 @@
 					function = "mii";
 				};
 
+				pcie_card_reset_pins: pcie-card-reset-pins {
+					groups = "pcie1";
+					function = "pcie";
+				};
 			};
 
 			eth0: ethernet@30000 {
