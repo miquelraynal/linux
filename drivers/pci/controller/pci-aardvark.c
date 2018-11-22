@@ -139,6 +139,8 @@
 #define     CTRL_MODE_MASK			0x1
 #define     PCIE_CORE_MODE_DIRECT		0x0
 #define     PCIE_CORE_MODE_COMMAND		0x1
+#define CTRL_WARM_RESET_REG			(CTRL_CORE_BASE_ADDR + 0x4)
+#define     CTRL_PERSTN_GPIO_EN			BIT(3)
 
 /* PCIe Central Interrupts Registers */
 #define CENTRAL_INT_BASE_ADDR			0x1b000
@@ -248,6 +250,11 @@ static int advk_pcie_wait_for_link(struct advk_pcie *pcie)
 static void advk_pcie_setup_hw(struct advk_pcie *pcie)
 {
 	u32 reg;
+
+	/* Reset the endpoint card upon hot reset or link failure */
+	reg = advk_readl(pcie, CTRL_WARM_RESET_REG);
+	reg |= CTRL_PERSTN_GPIO_EN;
+	advk_writel(pcie, reg, CTRL_WARM_RESET_REG);
 
 	/* Set HW Reference Clock Buffer Control */
 	advk_writel(pcie, PCIE_PHY_REFCLK_BUF_CTRL, PCIE_PHY_REFCLK);
