@@ -17,6 +17,7 @@
  * xtal clock as parent.
  */
 
+#include <linux/module.h>
 #include <linux/clk-provider.h>
 #include <linux/mfd/syscon.h>
 #include <linux/of.h>
@@ -796,4 +797,7 @@ static struct platform_driver armada_3700_periph_clock_driver = {
 	},
 };
 
-builtin_platform_driver(armada_3700_periph_clock_driver);
+module_platform_driver(armada_3700_periph_clock_driver);
+
+MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Armada 3700 periph clock driver");

@@ -6,6 +6,11 @@ config CLKDEV_LOOKUP
 config HAVE_CLK_PREPARE
 	bool
 
+config ARMADA_37XX_PERIPH
+       tristate "Armada 37xx periph clock"
+       ---help---
+         My loving clock.
+
 config COMMON_CLK
 	bool
 	select HAVE_CLK_PREPARE
