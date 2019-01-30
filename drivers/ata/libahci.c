@@ -1912,7 +1912,10 @@ static void ahci_port_intr(struct ata_port *ap)
 static irqreturn_t ahci_multi_irqs_intr_hard(int irq, void *dev_instance)
 {
 	struct ata_port *ap = dev_instance;
+	struct ata_host *host = ap->host;
+	struct ahci_host_priv *hpriv = host->private_data;
 	void __iomem *port_mmio = ahci_port_base(ap);
+	void __iomem *mmio = hpriv->mmio;
 	u32 status;
 
 	VPRINTK("ENTER\n");
@@ -1923,6 +1926,8 @@ static irqreturn_t ahci_multi_irqs_intr_hard(int irq, void *dev_instance)
 	spin_lock(ap->lock);
 	ahci_handle_port_interrupt(ap, port_mmio, status);
 	spin_unlock(ap->lock);
+
+	writel(BIT(ap->port_no), mmio + HOST_IRQ_STAT);
 
 	VPRINTK("EXIT\n");
 
