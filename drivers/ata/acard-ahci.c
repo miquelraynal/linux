@@ -434,7 +434,7 @@ static int acard_ahci_init_one(struct pci_dev *pdev, const struct pci_device_id 
 	if (!hpriv)
 		return -ENOMEM;
 
-	hpriv->irq = pdev->irq;
+	hpriv->irqs[0] = pdev->irq;
 	hpriv->flags |= (unsigned long)pi.private_data;
 
 	if (!(hpriv->flags & AHCI_HFLAG_NO_MSI))

@@ -24,6 +24,7 @@
 #include <linux/ahci_platform.h>
 #include <linux/phy/phy.h>
 #include <linux/pm_runtime.h>
+#include <linux/of_irq.h>
 #include <linux/of_platform.h>
 #include <linux/reset.h>
 #include "ahci.h"
@@ -94,6 +95,14 @@ static void ahci_platform_disable_phys(struct ahci_host_priv *hpriv)
 		phy_exit(hpriv->phys[i]);
 	}
 }
+
+int ahci_get_per_port_irq_vector(struct ata_host *host, int port)
+{
+	struct ahci_host_priv *hpriv = host->private_data;
+
+	return hpriv->irqs[port];
+}
+EXPORT_SYMBOL_GPL(ahci_get_per_port_irq_vector);
 
 /**
  * ahci_platform_enable_clks - Enable platform clocks
@@ -385,6 +394,7 @@ static int ahci_platform_get_regulator(struct ahci_host_priv *hpriv, u32 port,
  *    or for non devicetree enabled platforms a single clock
  * 4) resets, if flags has AHCI_PLATFORM_GET_RESETS (optional)
  * 5) phys (optional)
+ * 6) interrupt(s)
  *
  * RETURNS:
  * The allocated ahci_host_priv on success, otherwise an ERR_PTR value
@@ -396,7 +406,7 @@ struct ahci_host_priv *ahci_platform_get_resources(struct platform_device *pdev,
 	struct ahci_host_priv *hpriv;
 	struct clk *clk;
 	struct device_node *child;
-	int i, enabled_ports = 0, rc = -ENOMEM, child_nodes;
+	int i, enabled_ports = 0, rc = -ENOMEM, child_nodes, ctrl_irq;
 	u32 mask_port_map = 0;
 
 	if (!devres_open_group(dev, NULL, GFP_KERNEL))
@@ -489,10 +499,30 @@ struct ahci_host_priv *ahci_platform_get_resources(struct platform_device *pdev,
 		goto err_out;
 	}
 
+	hpriv->irqs = devm_kzalloc(dev, sizeof(*hpriv->irqs) * hpriv->nports,
+				   GFP_KERNEL);
+	if (!hpriv->irqs) {
+		rc = -ENOMEM;
+		goto err_out;
+	}
+
+	ctrl_irq = platform_get_irq(pdev, 0);
+	if (ctrl_irq < 0) {
+		if (ctrl_irq == -EPROBE_DEFER) {
+			rc = ctrl_irq;
+			goto err_out;
+		}
+		ctrl_irq = 0;
+	}
+
+	if (ctrl_irq > 0)
+		hpriv->irqs[0] = ctrl_irq;
+
 	if (child_nodes) {
 		for_each_child_of_node(dev->of_node, child) {
 			u32 port;
 			struct platform_device *port_dev __maybe_unused;
+			int port_irq;
 
 			if (!of_device_is_available(child))
 				continue;
@@ -521,6 +551,18 @@ struct ahci_host_priv *ahci_platform_get_resources(struct platform_device *pdev,
 			}
 #endif
 
+			if (!ctrl_irq) {
+				port_irq = of_irq_get(child, 0);
+				if (!port_irq)
+					port_irq = -EINVAL;
+				if (port_irq < 0) {
+					rc = port_irq;
+					goto err_out;
+				}
+
+				hpriv->irqs[port] = port_irq;
+			}
+
 			rc = ahci_platform_get_phy(hpriv, port, dev, child);
 			if (rc)
 				goto err_out;
@@ -548,6 +590,18 @@ struct ahci_host_priv *ahci_platform_get_resources(struct platform_device *pdev,
 		if (rc == -EPROBE_DEFER)
 			goto err_out;
 	}
+
+	if (!ctrl_irq && !enabled_ports) {
+		dev_err(&pdev->dev, "No IRQ defined\n");
+		rc = -ENODEV;
+		goto err_out;
+	}
+
+	if (!ctrl_irq && enabled_ports > 1) {
+		hpriv->flags |= AHCI_HFLAG_MULTI_MSI;
+		hpriv->get_irq_vector = ahci_get_per_port_irq_vector;
+	}
+
 	pm_runtime_enable(dev);
 	pm_runtime_get_sync(dev);
 	hpriv->got_runtime_pm = true;
@@ -584,16 +638,7 @@ int ahci_platform_init_host(struct platform_device *pdev,
 	struct ata_port_info pi = *pi_template;
 	const struct ata_port_info *ppi[] = { &pi, NULL };
 	struct ata_host *host;
-	int i, irq, n_ports, rc;
-
-	irq = platform_get_irq(pdev, 0);
-	if (irq <= 0) {
-		if (irq != -EPROBE_DEFER)
-			dev_err(dev, "no irq\n");
-		return irq;
-	}
-
-	hpriv->irq = irq;
+	int i, n_ports, rc;
 
 	/* prepare host */
 	pi.private_data = (void *)(unsigned long)hpriv->flags;

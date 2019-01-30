@@ -1817,7 +1817,13 @@ static int ahci_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		/* legacy intx interrupts */
 		pci_intx(pdev, 1);
 	}
-	hpriv->irq = pci_irq_vector(pdev, 0);
+
+	hpriv->irqs = devm_kzalloc(dev, sizeof(*hpriv->irqs) * n_ports,
+				   GFP_KERNEL);
+	if (!hpriv->irqs)
+		return -ENOMEM;
+
+	hpriv->irqs[0] = pci_irq_vector(pdev, 0);
 
 	if (!(hpriv->cap & HOST_CAP_SSS) || ahci_ignore_sss)
 		host->flags |= ATA_HOST_PARALLEL_SCAN;

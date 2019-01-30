@@ -2600,7 +2600,7 @@ static int ahci_host_activate_multi_irqs(struct ata_host *host,
 int ahci_host_activate(struct ata_host *host, struct scsi_host_template *sht)
 {
 	struct ahci_host_priv *hpriv = host->private_data;
-	int irq = hpriv->irq;
+	int irq = hpriv->irqs[0];
 	int rc;
 
 	if (hpriv->flags & AHCI_HFLAG_MULTI_MSI) {
