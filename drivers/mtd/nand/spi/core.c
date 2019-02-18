@@ -691,7 +691,8 @@ static bool spinand_isbad(struct nand_device *nand, const struct nand_pos *pos)
 	spinand_select_target(spinand, pos->target);
 	spinand_read_page(spinand, &req);
 	if (marker[0] != 0xff || marker[1] != 0xff)
-		return true;
+		printk("bad block -> ignoring\n");
+//		return true;
 
 	return false;
 }

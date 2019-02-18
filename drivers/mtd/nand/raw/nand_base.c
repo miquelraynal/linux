@@ -4212,8 +4212,8 @@ int nand_erase_nand(struct nand_chip *chip, struct erase_info *instr,
 					chip->page_shift, allowbbt)) {
 			pr_warn("%s: attempt to erase a bad block at page 0x%08x\n",
 				    __func__, page);
-			ret = -EIO;
-			goto erase_exit;
+//			ret = -EIO;
+//			goto erase_exit;
 		}
 
 		/*
@@ -4297,6 +4297,11 @@ static int nand_block_isbad(struct mtd_info *mtd, loff_t offs)
 
 	nand_deselect_target(chip);
 	nand_release_device(chip);
+
+	if (ret) {
+		printk("block is bad, but we don't care\n");
+		ret = 0;
+	}
 
 	return ret;
 }
