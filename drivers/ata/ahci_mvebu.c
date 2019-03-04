@@ -29,7 +29,7 @@
 #define AHCI_WINDOW_SIZE(win)	(0x68 + ((win) << 4))
 
 struct ahci_mvebu_plat_data {
-	int (*plat_config)(struct ahci_host_priv *hpriv);
+	int (*plat_config)(struct ahci_host_priv *hpriv, struct device *dev);
 	unsigned int host_flags;
 };
 
@@ -67,7 +67,8 @@ static void ahci_mvebu_regret_option(struct ahci_host_priv *hpriv)
 	writel(0x80, hpriv->mmio + AHCI_VENDOR_SPECIFIC_0_DATA);
 }
 
-static int ahci_mvebu_armada_380_config(struct ahci_host_priv *hpriv)
+static int ahci_mvebu_armada_380_config(struct ahci_host_priv *hpriv,
+					struct device *dev)
 {
 	const struct mbus_dram_target_info *dram;
 	int rc = 0;
@@ -83,7 +84,8 @@ static int ahci_mvebu_armada_380_config(struct ahci_host_priv *hpriv)
 	return rc;
 }
 
-static int ahci_mvebu_armada_3700_config(struct ahci_host_priv *hpriv)
+static int ahci_mvebu_armada_3700_config(struct ahci_host_priv *hpriv,
+					 struct device *dev)
 {
 	u32 reg;
 
@@ -162,7 +164,7 @@ static int ahci_mvebu_resume(struct platform_device *pdev)
 	struct ahci_host_priv *hpriv = host->private_data;
 	const struct ahci_mvebu_plat_data *pdata = hpriv->plat_data;
 
-	pdata->plat_config(hpriv);
+	pdata->plat_config(hpriv, &pdev->dev);
 
 	return ahci_platform_resume_host(&pdev->dev);
 }
@@ -205,7 +207,7 @@ static int ahci_mvebu_probe(struct platform_device *pdev)
 
 	hpriv->stop_engine = ahci_mvebu_stop_engine;
 
-	rc = pdata->plat_config(hpriv);
+	rc = pdata->plat_config(hpriv, &pdev->dev);
 	if (rc)
 		goto disable_resources;
 
