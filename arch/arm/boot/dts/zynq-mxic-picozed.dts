@@ -49,14 +49,16 @@
 		flash@0 {
 			compatible = "spi-nand";
 			reg = <0>;
-			nand-use-soft-ecc-engine;
-			nand-ecc-algo = "bch";
-			nand-ecc-strength = <8>;
-			nand-ecc-step-size = <512>;
+			nand-ecc-engine = <&ecc_engine>;
 			spi-max-frequency = <50000000>;
 			spi-tx-bus-width = <1>;
 			spi-rx-bus-width = <1>;
 		};
+	};
+
+	ecc_engine: ecc@43c40000 {
+		compatible = "mxicy,nand-ecc-engine-rev3";
+		reg = <0x43c40000 0x10000>;
 	};
 };
 
