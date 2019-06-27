@@ -17,6 +17,10 @@ Required properties:
    name must be "core" for the first clock and "reg" for the second
    one
 
+Optional properties:
+- phys: phandle to the PHY node (generic PHY bindings).
+- phy-names: names of the PHYs.
+
 Example:
 
 	pcie@f2600000 {
