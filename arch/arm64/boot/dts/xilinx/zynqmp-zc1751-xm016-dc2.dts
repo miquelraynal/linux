@@ -115,6 +115,25 @@
 	};
 };
 
+&nand0 {
+	status = "okay";
+	pinctrl-names = "default";
+
+	nand@0 {
+		reg = <0x0>;
+		nand-rb = <0x0>;
+		label = "arasan.0";
+		nand-ecc-mode = "hw";
+	};
+	/*
+	nand@1 {
+		reg = <0x1>;
+		nand-rb = <0x1>;
+		label = "arasan.1";
+	};
+	*/
+};
+
 &rtc {
 	status = "okay";
 };
