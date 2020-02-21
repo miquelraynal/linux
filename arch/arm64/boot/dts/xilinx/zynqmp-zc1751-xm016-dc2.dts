@@ -30,7 +30,7 @@
 	};
 
 	chosen {
-		bootargs = "earlycon";
+		bootargs = "earlycon console=ttyPS0,115200";
 		stdout-path = "serial0:115200n8";
 	};
 
@@ -84,8 +84,8 @@
 	status = "okay";
 	phy-handle = <&phy0>;
 	phy-mode = "rgmii-id";
-	phy0: ethernet-phy@5 {
-		reg = <5>;
+	phy0: ethernet-phy@f {
+		reg = <0xf>;
 		ti,rx-internal-delay = <0x8>;
 		ti,tx-internal-delay = <0xa>;
 		ti,fifo-depth = <0x1>;
