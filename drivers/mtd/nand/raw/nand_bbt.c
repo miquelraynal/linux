@@ -754,8 +754,8 @@ static int write_bbt(struct nand_chip *this, uint8_t *buf,
 		block = get_bbt_block(this, td, md, chip);
 		if (block < 0) {
 			pr_err("No space left to write bad block table\n");
-			res = block;
-			goto outerr;
+//			res = block;
+//			goto outerr;
 		}
 
 		/*

@@ -4212,10 +4212,10 @@ int nand_erase_nand(struct nand_chip *chip, struct erase_info *instr,
 		/* Check if we have a bad block, we do not erase bad blocks! */
 		if (nand_block_checkbad(chip, ((loff_t) page) <<
 					chip->page_shift, allowbbt)) {
-			pr_warn("%s: attempt to erase a bad block at page 0x%08x\n",
-				    __func__, page);
-			ret = -EIO;
-			goto erase_exit;
+			pr_warn("%s: actually erasing a bad block at page 0x%08x\n",
+				__func__, page);
+			//ret = -EIO;
+			//goto erase_exit;
 		}
 
 		/*
