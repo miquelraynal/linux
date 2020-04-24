@@ -265,6 +265,224 @@ static int anfc_len_to_steps(struct nand_chip *chip, unsigned int len)
 	return steps;
 }
 
+/*
+ * When using the embedded hardware ECC engine, the controller is in charge of
+ * feeding the engine with, first, the ECC residue present in the data array.
+ *
+ * Then, a typical read operation is:
+ * 1/ Assert the read operation by sending the relevant command/address cycles
+ *    but targeting the column of the first ECC bytes in the OOB area instead of
+ *    the main data directly.
+ * 2/ After having read the relevant number of ECC bytes, the controller uses
+ *    the RNDOUT/RNDSTART commands which are set into the "ECC Spare Command
+ *    Register" to move the pointer back at the begining of the main data.
+ * 3/ It will read the content of the main area for a given size (pktsize) and
+ *    will feed the ECC engine with this buffer again.
+ * 4/ The ECC engine derives the ECC bytes for the given data and compare them
+ *    with the ones alredy received. It eventually trigger status flags and then
+ *    set the "Buffer Read Ready" flag.
+ * 5/ The corrected data is then available for reading from the data port
+ *    register.
+ *
+ * One issue with this approach is that we cannot use MDMA for reads. Indeed,
+ * there is no possibility to retrieve the intermediate accounting of bitflips
+ * neither during the processing nor after.
+ */
+static int anfc_read_page_hwecc(struct nand_chip *chip, u8 *buf,
+				int oob_required, int page)
+{
+	struct arasan_nand *arasan_nand = to_arasan_nand(chip);
+	struct arasan_nfc *nfc = to_anfc(chip->controller);
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	unsigned int failures = 0, max_bitflips = 0;
+	dma_addr_t paddr;
+	u32 ret;
+	int i;
+	struct anfc_op nfc_op = {
+		.pkt_reg =
+			PKT_SIZE(chip->ecc.size) |
+			PKT_STEPS(chip->ecc.steps),
+		.addr1_reg =
+			(page & 0xFF) << (8 * (arasan_nand->caddr_cycles)) |
+			(((page >> 8) & 0xFF) << (8 * (1 + arasan_nand->caddr_cycles))),
+		.addr2_reg =
+			((page >> 16) & 0xFF) |
+			ADDR2_STRENGTH(arasan_nand->strength) |
+			ADDR2_CS(arasan_nand->cs),
+		.cmd_reg =
+			CMD_1(NAND_CMD_READ0) |
+			CMD_2(NAND_CMD_READSTART) |
+			CMD_PAGE_SIZE(arasan_nand->page_sz) |
+		/*CMD_DMA_ENABLE |*/
+			CMD_NADDRS(arasan_nand->caddr_cycles + arasan_nand->raddr_cycles) |
+			CMD_ECC_ENABLE,
+		.prog_reg = PROG_PGRD,
+	};
+	printk("%s [%d]\n", __func__, __LINE__);
+
+	writel_relaxed(ECC_SP_CMD1(NAND_CMD_RNDOUT) |
+		       ECC_SP_CMD2(NAND_CMD_RNDOUTSTART) |
+		       ECC_SP_ADDRS(arasan_nand->caddr_cycles),
+		       nfc->base + ECC_SP_REG);
+
+	/*
+	paddr = dma_map_single(nfc->dev, buf, mtd->writesize, DMA_FROM_DEVICE);
+	if (dma_mapping_error(nfc->dev, paddr)) {
+		dev_err(nfc->dev, "Buffer mapping error");
+		return -EIO;
+	}
+
+	writel_relaxed(paddr, nfc->base + DMA_ADDR0_REG);
+	writel_relaxed((paddr >> 32), nfc->base + DMA_ADDR1_REG);
+	*/
+	anfc_trigger_op(nfc, &nfc_op);
+	printk("%s [%d]\n", __func__, __LINE__);
+
+	for (i = 0; i < chip->ecc.steps; i++) {
+		u32 reg;
+		int stat;
+
+		ret = anfc_wait_for_event(nfc, READ_READY, 0);
+		if (ret) {
+			dev_err(nfc->dev, "Read ready signal not received\n");
+			return ret;
+		}
+
+		ioread32_rep(nfc->base + DATA_PORT_REG,
+			     &buf[i * chip->ecc.size],
+			     chip->ecc.size / 4);
+
+		reg = readl_relaxed(nfc->base + ECC_ERR_CNT_REG);
+		printk("before: pkt err %d, page err %ld\n", GET_PKT_ERR_CNT(reg), GET_PAGE_ERR_CNT(reg));
+//		writel(0, nfc->base + ECC_ERR_CNT_REG);
+//		printk("after:  pkt err %d, page err %ld\n", GET_PKT_ERR_CNT(reg), GET_PAGE_ERR_CNT(reg));
+		stat = GET_PKT_ERR_CNT(reg);
+		mtd->ecc_stats.corrected += stat;
+		max_bitflips = max_t(unsigned int, max_bitflips, stat);
+	}
+
+	ret = anfc_wait_for_event(nfc, XFER_COMPLETE, 0);
+	/*
+	dma_unmap_single(nfc->dev, paddr, mtd->writesize, DMA_FROM_DEVICE);
+	*/
+	if (ret) {
+		dev_err(nfc->dev, "Error reading page %d\n", page);
+		return ret;
+	}
+
+	if (oob_required && !max_bitflips) {
+		ret = nand_change_read_column_op(chip, mtd->writesize,
+						 chip->oob_poi, mtd->oobsize,
+						 false);
+		if (ret)
+			return ret;
+	}
+/*
+	if (max_bitflips) {
+		unsigned int dataoff, eccoff;
+		u8 *tmp, *ecc;
+		int stat;
+		int j;
+
+		printk("%s [%d]\n", __func__, __LINE__);
+		tmp = kmalloc(mtd->writesize + mtd->oobsize, GFP_KERNEL);
+		if (!tmp)
+			return -ENOMEM;
+
+		ecc = kmalloc(chip->ecc.total, GFP_KERNEL);
+		if (!ecc) {
+			kfree(tmp);
+			return -ENOMEM;
+		}
+
+		ret = chip->ecc.read_page_raw(chip, tmp, true, page);
+		if (ret) {
+			kfree(tmp);
+			kfree(ecc);
+			return ret;
+		}
+
+		mtd_ooblayout_get_eccbytes(mtd, ecc, chip->oob_poi, 0,
+					   chip->ecc.total);
+
+                for (i = 0; i < chip->ecc.steps; i++) {
+			dataoff = i * chip->ecc.size;
+			eccoff = i * chip->ecc.bytes;
+
+                        stat = nand_check_erased_ecc_chunk(tmp + dataoff,
+                                                           chip->ecc.size,
+                                                           ecc + eccoff,
+                                                           chip->ecc.bytes,
+                                                           NULL, 0,
+                                                           chip->ecc.strength);
+			printk("erased chunk %d stat %d\n", i, stat);
+                        if (stat < 0) {
+                                mtd->ecc_stats.failed++;
+                        } else {
+                                mtd->ecc_stats.corrected += stat;
+                                max_bitflips = max_t(unsigned int, max_bitflips, stat);
+                        }
+		}
+
+		kfree(tmp);
+		kfree(ecc);
+	}
+*/
+	return 0;
+}
+
+static int anfc_write_page_hwecc(struct nand_chip *chip, const u8 *buf,
+				 int oob_required, int page)
+{
+	struct arasan_nand *arasan_nand = to_arasan_nand(chip);
+	struct arasan_nfc *nfc = to_anfc(chip->controller);
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	unsigned int len = mtd->writesize + (oob_required ? mtd->oobsize : 0);
+	dma_addr_t paddr;
+	u32 ret;
+	struct anfc_op nfc_op = {
+		.pkt_reg =
+			PKT_SIZE(chip->ecc.size) |
+			PKT_STEPS(chip->ecc.steps),
+		.addr1_reg =
+			(page & 0xFF) << (8 * (arasan_nand->caddr_cycles)) |
+			(((page >> 8) & 0xFF) << (8 * (1 + arasan_nand->caddr_cycles))),
+		.addr2_reg =
+			((page >> 16) & 0xFF) |
+			ADDR2_STRENGTH(arasan_nand->strength) |
+			ADDR2_CS(arasan_nand->cs),
+		.cmd_reg =
+			CMD_1(NAND_CMD_SEQIN) |
+			CMD_2(NAND_CMD_PAGEPROG) |
+			CMD_PAGE_SIZE(arasan_nand->page_sz) |
+			CMD_DMA_ENABLE |
+			CMD_NADDRS(arasan_nand->caddr_cycles + arasan_nand->raddr_cycles) |
+			CMD_ECC_ENABLE,
+		.prog_reg = PROG_PGPROG,
+	};
+
+	writel_relaxed(ECC_SP_CMD1(NAND_CMD_RNDIN) |
+		       ECC_SP_ADDRS(arasan_nand->caddr_cycles),
+		       nfc->base + ECC_SP_REG);
+
+	paddr = dma_map_single(nfc->dev, (void *)buf, len, DMA_TO_DEVICE);
+	if (dma_mapping_error(nfc->dev, paddr)) {
+		dev_err(nfc->dev, "Buffer mapping error");
+		return -EIO;
+	}
+
+	writel_relaxed(paddr, nfc->base + DMA_ADDR0_REG);
+	writel_relaxed((paddr >> 32), nfc->base + DMA_ADDR1_REG);
+
+	anfc_trigger_op(nfc, &nfc_op);
+	ret = anfc_wait_for_event(nfc, XFER_COMPLETE, 0);
+	dma_unmap_single(nfc->dev, paddr, len, DMA_TO_DEVICE);
+	if (ret)
+		dev_err(nfc->dev, "Error writing page %d\n", page);
+
+	return ret;
+}
+
 /* NAND framework ->exec_op() hooks and related helpers */
 static void anfc_parse_instructions(struct nand_chip *chip,
 				    const struct nand_subop *subop,
@@ -620,6 +838,95 @@ static int anfc_setup_data_interface(struct nand_chip *chip, int target,
 	return 0;
 }
 
+static int anfc_init_hw_ecc_controller(struct arasan_nfc *nfc,
+				       struct nand_chip *chip)
+{
+	struct arasan_nand *arasan_nand = to_arasan_nand(chip);
+	struct mtd_info *mtd = nand_to_mtd(chip);
+	struct nand_ecc_ctrl *ecc = &chip->ecc;
+
+	switch (mtd->writesize) {
+	case SZ_512:
+	case SZ_2K:
+	case SZ_4K:
+	case SZ_8K:
+	case SZ_16K:
+		break;
+	default:
+		dev_err(nfc->dev, "Unsupported page size %d\n", mtd->writesize);
+		return -EINVAL;
+	}
+
+	if (!ecc->size || !ecc->strength) {
+		ecc->size = chip->base.eccreq.step_size;
+		ecc->strength = chip->base.eccreq.strength;
+	}
+
+	if (!ecc->size || !ecc->strength) {
+		dev_err(nfc->dev,
+			"Missing controller ECC step size/strength\n");
+		return -EINVAL;
+	}
+
+	switch (ecc->strength) {
+	case 1:
+		arasan_nand->strength = 0x0;
+		break;
+	case 12:
+		arasan_nand->strength = 0x1;
+		break;
+	case 8:
+		arasan_nand->strength = 0x2;
+		break;
+	case 4:
+		arasan_nand->strength = 0x3;
+		break;
+	case 24:
+		arasan_nand->strength = 0x4;
+		break;
+	default:
+		dev_err(nfc->dev, "Unsupported strength %d\n", ecc->strength);
+		return -EINVAL;
+	}
+
+	switch (ecc->size) {
+	case SZ_512:
+	case SZ_1K:
+		break;
+	default:
+		dev_err(nfc->dev, "Unsupported step size %d\n", ecc->strength);
+		return -EINVAL;
+	}
+
+	if ((ecc->size == SZ_1K && ecc->strength != 24) ||
+	    (ecc->size != SZ_1K && ecc->strength == 24)) {
+		dev_err(nfc->dev,
+			"Unsupported couple strength/step-size: %dB/%db\n",
+			ecc->strength, ecc->size);
+		return -EINVAL;
+	}
+
+	mtd_set_ooblayout(mtd, &nand_ooblayout_lp_ops);
+
+	/* Regular BCH byte number calculation */
+	ecc->bytes = DIV_ROUND_UP(ecc->strength * fls(8 * ecc->size), 8);
+	ecc->steps = mtd->writesize / ecc->size;
+	ecc->total = ecc->bytes * ecc->steps;
+	arasan_nand->ecc_conf = ECC_REG_COL(mtd->writesize + mtd->oobsize -
+					    ecc->total) |
+				ECC_REG_LEN(ecc->total);
+	printk("reg col %x, reg len %x\n",
+	       ECC_REG_COL(mtd->writesize + mtd->oobsize - ecc->total),
+	       ECC_REG_LEN(ecc->total));
+	if (ecc->algo == NAND_ECC_BCH)
+		arasan_nand->ecc_conf |= ECC_BCH_EN;
+
+	ecc->read_page = anfc_read_page_hwecc;
+	ecc->write_page = anfc_write_page_hwecc;
+
+	return 0;
+}
+
 static int anfc_nand_attach_chip(struct nand_chip *chip)
 {
 	struct arasan_nand *arasan_nand = to_arasan_nand(chip);
@@ -670,6 +977,8 @@ static int anfc_nand_attach_chip(struct nand_chip *chip)
 	case NAND_ECC_ON_DIE:
 		break;
 	case NAND_ECC_HW:
+		ret = anfc_init_hw_ecc_controller(nfc, chip);
+		break;
 	default:
 		dev_err(nfc->dev, "Unsupported ECC mode: %d\n",
 			chip->ecc.mode);
