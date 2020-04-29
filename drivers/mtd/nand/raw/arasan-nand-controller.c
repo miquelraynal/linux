@@ -160,13 +160,15 @@ struct arasan_nand {
  * @dev:		Pointer to the device structure
  * @base:		Remapped register area
  * @controller_clk:		Pointer to the system clock
- * @bus_clk:		Pointer to the flash clock.
+ * @bus_clk:		Pointer to the flash clock
  * @controller:		Base controller structure
  * @chips:		List of all NAND chips attached to the controller
  * @assigned_cs:	Bitmask describing already assigned CS lines
  * @cur_cs:		Currently selected chip
  * @cur_clk:		Current clock rate
- * @event:		Completion event for nand status events.
+ * @event:		Completion event for nand status events
+ * @buf:		Buffer used to store a "step" of raw data
+ * @bfs:		Array of bitflips read in each ECC step
  */
 struct arasan_nfc {
 	struct device *dev;
@@ -179,6 +181,8 @@ struct arasan_nfc {
 	unsigned int cur_cs;
 	unsigned int cur_clk;
 	struct completion event;
+	u8 *buf;
+	u8 *bfs;
 };
 
 static struct arasan_nand *to_arasan_nand(struct nand_chip *nand)
@@ -231,10 +235,11 @@ static int anfc_wait_for_rb(struct arasan_nfc *nfc, struct nand_chip *chip,
 	struct arasan_nand *arasan_nand = to_arasan_nand(chip);
 	u32 val;
 	int ret;
-
+	printk("todo: verify it works: begin %x\n", readl(nfc->base + READY_STS_REG));
 	ret = readl_relaxed_poll_timeout(nfc->base + READY_STS_REG, val,
 					 val & BIT(arasan_nand->rb),
 					 0, ANFC_DFLT_TIMEOUT_MS);
+	printk("after %x\n", readl(nfc->base + READY_STS_REG));
 	if (ret) {
 		dev_err(nfc->dev, "Timeout waiting for R/B 0x%x\n",
 			readl_relaxed(nfc->base + READY_STS_REG));
@@ -268,8 +273,7 @@ static int anfc_len_to_steps(struct nand_chip *chip, unsigned int len)
 /*
  * When using the embedded hardware ECC engine, the controller is in charge of
  * feeding the engine with, first, the ECC residue present in the data array.
- *
- * Then, a typical read operation is:
+ * A typical read operation is:
  * 1/ Assert the read operation by sending the relevant command/address cycles
  *    but targeting the column of the first ECC bytes in the OOB area instead of
  *    the main data directly.
@@ -284,9 +288,7 @@ static int anfc_len_to_steps(struct nand_chip *chip, unsigned int len)
  * 5/ The corrected data is then available for reading from the data port
  *    register.
  *
- * One issue with this approach is that we cannot use MDMA for reads. Indeed,
- * there is no possibility to retrieve the intermediate accounting of bitflips
- * neither during the processing nor after.
+ * One issue with this approach is that we cannot use MDMA for reads and a lot of computation is needed, slowing down the overal throughput.
  */
 static int anfc_read_page_hwecc(struct nand_chip *chip, u8 *buf,
 				int oob_required, int page)
@@ -294,10 +296,10 @@ static int anfc_read_page_hwecc(struct nand_chip *chip, u8 *buf,
 	struct arasan_nand *arasan_nand = to_arasan_nand(chip);
 	struct arasan_nfc *nfc = to_anfc(chip->controller);
 	struct mtd_info *mtd = nand_to_mtd(chip);
-	unsigned int failures = 0, max_bitflips = 0;
-	dma_addr_t paddr;
+	unsigned int max_bitflips = 0, prev_bf_count = 0, new_bf_count;
+	u8 *ecc_poi = &chip->oob_poi[mtd->oobsize - chip->ecc.total];
 	u32 ret;
-	int i;
+	int step, byte;
 	struct anfc_op nfc_op = {
 		.pkt_reg =
 			PKT_SIZE(chip->ecc.size) |
@@ -313,34 +315,20 @@ static int anfc_read_page_hwecc(struct nand_chip *chip, u8 *buf,
 			CMD_1(NAND_CMD_READ0) |
 			CMD_2(NAND_CMD_READSTART) |
 			CMD_PAGE_SIZE(arasan_nand->page_sz) |
-		/*CMD_DMA_ENABLE |*/
 			CMD_NADDRS(arasan_nand->caddr_cycles + arasan_nand->raddr_cycles) |
 			CMD_ECC_ENABLE,
 		.prog_reg = PROG_PGRD,
 	};
-	printk("%s [%d]\n", __func__, __LINE__);
 
 	writel_relaxed(ECC_SP_CMD1(NAND_CMD_RNDOUT) |
 		       ECC_SP_CMD2(NAND_CMD_RNDOUTSTART) |
 		       ECC_SP_ADDRS(arasan_nand->caddr_cycles),
 		       nfc->base + ECC_SP_REG);
 
-	/*
-	paddr = dma_map_single(nfc->dev, buf, mtd->writesize, DMA_FROM_DEVICE);
-	if (dma_mapping_error(nfc->dev, paddr)) {
-		dev_err(nfc->dev, "Buffer mapping error");
-		return -EIO;
-	}
-
-	writel_relaxed(paddr, nfc->base + DMA_ADDR0_REG);
-	writel_relaxed((paddr >> 32), nfc->base + DMA_ADDR1_REG);
-	*/
 	anfc_trigger_op(nfc, &nfc_op);
-	printk("%s [%d]\n", __func__, __LINE__);
 
-	for (i = 0; i < chip->ecc.steps; i++) {
+	for (step = 0; step < chip->ecc.steps; step++) {
 		u32 reg;
-		int stat;
 
 		ret = anfc_wait_for_event(nfc, READ_READY, 0);
 		if (ret) {
@@ -349,85 +337,78 @@ static int anfc_read_page_hwecc(struct nand_chip *chip, u8 *buf,
 		}
 
 		ioread32_rep(nfc->base + DATA_PORT_REG,
-			     &buf[i * chip->ecc.size],
+			     &buf[step * chip->ecc.size],
 			     chip->ecc.size / 4);
 
+		/* Retrieve, step by step, the number of corrected errors */
 		reg = readl_relaxed(nfc->base + ECC_ERR_CNT_REG);
-		printk("before: pkt err %d, page err %ld\n", GET_PKT_ERR_CNT(reg), GET_PAGE_ERR_CNT(reg));
-//		writel(0, nfc->base + ECC_ERR_CNT_REG);
-//		printk("after:  pkt err %d, page err %ld\n", GET_PKT_ERR_CNT(reg), GET_PAGE_ERR_CNT(reg));
-		stat = GET_PKT_ERR_CNT(reg);
-		mtd->ecc_stats.corrected += stat;
-		max_bitflips = max_t(unsigned int, max_bitflips, stat);
+		new_bf_count = GET_PAGE_ERR_CNT(reg);
+		nfc->bfs[step] = new_bf_count - prev_bf_count;
+		prev_bf_count = new_bf_count;
 	}
 
 	ret = anfc_wait_for_event(nfc, XFER_COMPLETE, 0);
-	/*
-	dma_unmap_single(nfc->dev, paddr, mtd->writesize, DMA_FROM_DEVICE);
-	*/
 	if (ret) {
 		dev_err(nfc->dev, "Error reading page %d\n", page);
 		return ret;
 	}
 
-	if (oob_required && !max_bitflips) {
-		ret = nand_change_read_column_op(chip, mtd->writesize,
-						 chip->oob_poi, mtd->oobsize,
-						 false);
-		if (ret)
-			return ret;
+	/* Store in nfc->buf the raw content of the page */
+	ret = nand_change_read_column_op(chip, 0, nfc->buf, mtd->writesize, 0);
+	if (ret)
+		return ret;
+
+	/* Store the raw OOB bytes as well */
+	ret = nand_change_read_column_op(chip, mtd->writesize, chip->oob_poi,
+					 mtd->oobsize, 0);
+	if (ret)
+		return ret;
+
+	/*
+	 * Compute, for each step, the number of different bits. If there is no
+	 * difference, we can trust the ECC engine. Otherwise, the engine could
+	 * not ensure data integrity. In this case, we check for an erased page.
+	 * If the number of bitflips in the presumed erased page is too high,
+	 * then it is an actual failure.
+	 */
+	for (step = 0; step < chip->ecc.steps; step++) {
+		u8 *corrected_buf = &buf[step * chip->ecc.size];
+		u8 *raw_buf = &nfc->buf[step * chip->ecc.size];
+		u8 *ecc_buf = &ecc_poi[step * chip->ecc.bytes];
+		int bf = 0;
+
+		for (byte = 0; byte < chip->ecc.size; byte++) {
+			if ((step < 6 && byte < 8) ||
+			    (step == 4))
+				printk("Offset %d: %02x ^ %02x = %02x --> %d\n",
+				       (step * chip->ecc.size) + byte,
+				       corrected_buf[byte], raw_buf[byte],
+				       corrected_buf[byte] ^ raw_buf[byte],
+				       hweight8(corrected_buf[byte] ^ raw_buf[byte]));
+			bf += hweight8(corrected_buf[byte] ^ raw_buf[byte]);
+		}
+
+		printk("step %d: engine pretends %d bf, we count %d\n", step, nfc->bfs[step], bf);
+
+		if (bf == nfc->bfs[step]) {
+			mtd->ecc_stats.corrected += bf;
+			max_bitflips = max_t(unsigned int, max_bitflips, bf);
+			continue;
+		}
+
+		bf = nand_check_erased_ecc_chunk(raw_buf, chip->ecc.size,
+						 ecc_buf, chip->ecc.bytes,
+						 NULL, 0, chip->ecc.strength);
+		printk("erased chunk %d\n", bf);
+		if (bf < 0) {
+			mtd->ecc_stats.failed++;
+		} else {
+			mtd->ecc_stats.corrected += bf;
+			max_bitflips = max_t(unsigned int, max_bitflips, bf);
+			memset(corrected_buf, 0xFF, chip->ecc.size);
+		}
 	}
-/*
-	if (max_bitflips) {
-		unsigned int dataoff, eccoff;
-		u8 *tmp, *ecc;
-		int stat;
-		int j;
 
-		printk("%s [%d]\n", __func__, __LINE__);
-		tmp = kmalloc(mtd->writesize + mtd->oobsize, GFP_KERNEL);
-		if (!tmp)
-			return -ENOMEM;
-
-		ecc = kmalloc(chip->ecc.total, GFP_KERNEL);
-		if (!ecc) {
-			kfree(tmp);
-			return -ENOMEM;
-		}
-
-		ret = chip->ecc.read_page_raw(chip, tmp, true, page);
-		if (ret) {
-			kfree(tmp);
-			kfree(ecc);
-			return ret;
-		}
-
-		mtd_ooblayout_get_eccbytes(mtd, ecc, chip->oob_poi, 0,
-					   chip->ecc.total);
-
-                for (i = 0; i < chip->ecc.steps; i++) {
-			dataoff = i * chip->ecc.size;
-			eccoff = i * chip->ecc.bytes;
-
-                        stat = nand_check_erased_ecc_chunk(tmp + dataoff,
-                                                           chip->ecc.size,
-                                                           ecc + eccoff,
-                                                           chip->ecc.bytes,
-                                                           NULL, 0,
-                                                           chip->ecc.strength);
-			printk("erased chunk %d stat %d\n", i, stat);
-                        if (stat < 0) {
-                                mtd->ecc_stats.failed++;
-                        } else {
-                                mtd->ecc_stats.corrected += stat;
-                                max_bitflips = max_t(unsigned int, max_bitflips, stat);
-                        }
-		}
-
-		kfree(tmp);
-		kfree(ecc);
-	}
-*/
 	return 0;
 }
 
@@ -915,11 +896,18 @@ static int anfc_init_hw_ecc_controller(struct arasan_nfc *nfc,
 	arasan_nand->ecc_conf = ECC_REG_COL(mtd->writesize + mtd->oobsize -
 					    ecc->total) |
 				ECC_REG_LEN(ecc->total);
-	printk("reg col %x, reg len %x\n",
-	       ECC_REG_COL(mtd->writesize + mtd->oobsize - ecc->total),
-	       ECC_REG_LEN(ecc->total));
 	if (ecc->algo == NAND_ECC_BCH)
 		arasan_nand->ecc_conf |= ECC_BCH_EN;
+
+	/* This buffer is only used to read raw data in PIO mode */
+	nfc->buf = devm_kmalloc(nfc->dev, mtd->writesize, GFP_KERNEL);
+	if (!nfc->buf)
+		return -ENOMEM;
+
+	/* Array to store bitflips step by step */
+	nfc->bfs = devm_kmalloc(nfc->dev, ecc->steps, GFP_KERNEL);
+	if (!nfc->bfs)
+		return -ENOMEM;
 
 	ecc->read_page = anfc_read_page_hwecc;
 	ecc->write_page = anfc_write_page_hwecc;
