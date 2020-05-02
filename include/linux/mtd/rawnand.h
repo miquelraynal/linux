@@ -1407,6 +1407,7 @@ void nand_deselect_target(struct nand_chip *chip);
 /* Bitops */
 void nand_extract_bits(u8 *dst, const u8 *src, unsigned int src_off,
 		       unsigned int nbits);
+void nand_swap_bits(u8 *buf, unsigned int len);
 
 /**
  * nand_get_data_buf() - Get the internal page buffer
