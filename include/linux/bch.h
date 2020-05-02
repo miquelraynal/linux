@@ -64,4 +64,10 @@ int bch_decode(struct bch_control *bch, const uint8_t *data, unsigned int len,
 	       const uint8_t *recv_ecc, const uint8_t *calc_ecc,
 	       const unsigned int *syn, unsigned int *errloc);
 
+int bch_compute_error_locator_polynomial(struct bch_control *bch,
+					 const uint8_t *data, unsigned int len,
+					 const uint8_t *recv_ecc,
+					 const uint8_t *calc_ecc,
+					 const unsigned int *syn);
+
 #endif /* _BCH_H */
