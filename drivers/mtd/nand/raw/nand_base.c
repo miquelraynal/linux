@@ -255,6 +255,22 @@ void nand_extract_bits(u8 *dst, const u8 *src, unsigned int src_off,
 	}
 }
 
+/* Swap bits of each byte of a buffer */
+void nand_swap_bits(u8 *buf, unsigned int len)
+{
+	int i, j;
+
+	for (j = 0; j < len; j++) {
+		uint8_t byte = buf[j];
+
+		buf[j] = 0;
+		for (i = 0; i < 8; i++) {
+			if (byte & (1 << i))
+				buf[j] |= (1 << (7 - i));
+		}
+	}
+}
+
 /**
  * nand_select_target() - Select a NAND target (A.K.A. die)
  * @chip: NAND chip object
