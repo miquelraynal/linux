@@ -51,6 +51,7 @@ struct bch_control {
 	int            *cache;
 	struct gf_poly *elp;
 	struct gf_poly *poly_2t[4];
+	bool		swap_bits;
 };
 
 struct bch_control *bch_init(int m, int t, unsigned int prim_poly);
