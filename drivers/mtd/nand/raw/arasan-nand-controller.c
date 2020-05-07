@@ -283,7 +283,7 @@ static void anfc_extract_ecc_bits(struct anand *anand, const u8 *ecc)
 		nand_extract_bits(dst, ecc, src_off, anand->ecc_bits);
 
 		/* Swap bits */
-		nand_swap_bits(dst, chip->ecc.bytes);
+//		nand_swap_bits(dst, chip->ecc.bytes);
 	}
 }
 
@@ -366,7 +366,7 @@ static int anfc_read_page_hw_ecc(struct nand_chip *chip, u8 *buf,
 		return ret;
 
 	/* Swap bits of the entire page and reorder ECC bytes */
-	nand_swap_bits(buf, mtd->writesize);
+//	nand_swap_bits(buf, mtd->writesize);
 	anfc_extract_ecc_bits(anand, &chip->oob_poi[mtd->oobsize -
 						    anand->ecc_total]);
 
@@ -413,7 +413,7 @@ static int anfc_read_page_hw_ecc(struct nand_chip *chip, u8 *buf,
 		}
 	}
 
-	nand_swap_bits(buf, mtd->writesize);
+//	nand_swap_bits(buf, mtd->writesize);
 
 	return 0;
 }
