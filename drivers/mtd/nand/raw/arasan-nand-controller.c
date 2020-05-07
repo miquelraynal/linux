@@ -921,6 +921,8 @@ static int anfc_init_hw_ecc_controller(struct arasan_nfc *nfc,
 	if (!anand->bch)
 		return -EINVAL;
 
+	anand->bch->swap_bits = true;
+
 	ecc->read_page = anfc_read_page_hw_ecc;
 	ecc->write_page = anfc_write_page_hw_ecc;
 
