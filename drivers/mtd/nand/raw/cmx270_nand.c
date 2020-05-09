@@ -219,8 +219,12 @@ module_init(cmx270_init);
  */
 static void __exit cmx270_cleanup(void)
 {
+	int ret;
+
 	/* Release resources, unregister device */
-	nand_release(mtd_to_nand(cmx270_nand_mtd));
+	ret = mtd_device_unregister(cmx270_nand_mtd);
+	WARN_ON(ret);
+	nand_cleanup(mtd_to_nand(cmx270_nand_mtd));
 
 	gpio_free(GPIO_NAND_RB);
 	gpio_free(GPIO_NAND_CS);
