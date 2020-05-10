@@ -929,10 +929,12 @@ struct nand_controller_ops {
  *
  * @lock:		lock used to serialize accesses to the NAND controller
  * @ops:		NAND controller operations.
+ * @flags:		NAND controller flags
  */
 struct nand_controller {
 	struct mutex lock;
 	const struct nand_controller_ops *ops;
+	unsigned int flags;
 };
 
 static inline void nand_controller_init(struct nand_controller *nfc)
