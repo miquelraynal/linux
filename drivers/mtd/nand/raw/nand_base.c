@@ -976,6 +976,17 @@ static int nand_choose_data_interface(struct nand_chip *chip)
 		return 0;
 
 	/*
+	 * Let the NAND vendor hook identify the best timings.
+	 * ->choose_data_interface() is expected to update the entire chip's
+	 * nand_data_interface structure.
+	 */
+	if (nand_can_choose_data_interface(chip)) {
+		ret = chip->ops.choose_data_interface(chip);
+		if (!ret)
+			return ret;
+	}
+
+	/*
 	 * First try to identify the best timings from ONFI parameters and
 	 * if the NAND does not support ONFI, fallback to the default ONFI
 	 * timing mode.
