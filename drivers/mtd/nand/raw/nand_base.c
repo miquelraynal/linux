@@ -25,6 +25,7 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+#include <linux/bitfield.h>
 #include <linux/module.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
@@ -4651,11 +4652,7 @@ static int nand_id_len(u8 *id_data, int arrlen)
 /* Extract the bits of per cell from the 3rd byte of the extended ID */
 static int nand_get_bits_per_cell(u8 cellinfo)
 {
-	int bits;
-
-	bits = cellinfo & NAND_CI_CELLTYPE_MSK;
-	bits >>= NAND_CI_CELLTYPE_SHIFT;
-	return bits + 1;
+	return FIELD_GET(GENMASK(3, 2), cellinfo) + 1;
 }
 
 /*

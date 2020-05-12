@@ -226,10 +226,6 @@ enum nand_ecc_algo {
  */
 #define NAND_NO_BBM_QUIRK	BIT(27)
 
-/* Cell info constants */
-#define NAND_CI_CELLTYPE_MSK	0x0C
-#define NAND_CI_CELLTYPE_SHIFT	2
-
 /**
  * struct nand_parameters - NAND generic parameters from the parameter page
  * @model: Model name
