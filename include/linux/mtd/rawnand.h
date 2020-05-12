@@ -178,7 +178,6 @@ enum nand_ecc_algo {
 #define NAND_CONTROLLER_NO_SUBPAGE_WRITE BIT(0)
 /* The controller supports subpage reads */
 #define NAND_CONTROLLER_SUBPAGE_READ BIT(1)
-#define NAND_CONTROLLER_HAS_SUBPAGE_READS(chip) ((chip->controller->flags & NAND_CONTROLLER_SUBPAGE_READ))
 /*
  * This option could be defined by controller drivers to protect against
  * kmap'ed, vmalloc'ed highmem buffers being passed from upper layers
@@ -199,6 +198,10 @@ enum nand_ecc_algo {
  * configuration done by the bootloader.
  */
 #define NAND_CONTROLLER_KEEP_TIMINGS BIT(4)
+
+#define NAND_SUBPAGE_WRITE_AVAILABLE(chip) (!(chip->controller->flags & NAND_CONTROLLER_NO_SUBPAGE_WRITE) && \
+					    !(chip->options & NAND_NO_SUBPAGE_WRITE))
+#define NAND_SUBPAGE_READ_AVAILABLE(chip) (chip->controller->flags & NAND_CONTROLLER_SUBPAGE_READ)
 
 /**
  * struct nand_parameters - NAND generic parameters from the parameter page
