@@ -358,7 +358,7 @@ static void nand_ccs_delay(struct nand_chip *chip)
 	 * The controller already takes care of waiting for tCCS when the RNDIN
 	 * or RNDOUT command is sent, return directly.
 	 */
-	if (!(chip->options & NAND_WAIT_TCCS))
+	if (!(chip->controller->flags & NAND_CONTROLLER_WAIT_TCCS))
 		return;
 
 	/*

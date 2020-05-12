@@ -194,8 +194,7 @@ enum nand_ecc_algo {
  * If your controller already takes care of this delay, you don't need to set
  * this flag.
  */
-#define NAND_WAIT_TCCS		BIT(21)
-
+#define NAND_CONTROLLER_WAIT_TCCS BIT(21)
 /*
  * Do not try to tweak the timings at runtime. This is needed when the
  * controller initializes the timings on itself or when it relies on

@@ -819,7 +819,7 @@ static int denali_setup_data_interface(struct nand_chip *chip, int chipnr,
 	 * tCCS, tWHR -> WE_2_RE
 	 *
 	 * With WE_2_RE properly set, the Denali controller automatically takes
-	 * care of the delay; the driver need not set NAND_WAIT_TCCS.
+	 * care of the delay; the driver need not set NAND_CONTROLLER_WAIT_TCCS.
 	 */
 	we_2_re = DIV_ROUND_UP(max(timings->tCCS_min, timings->tWHR_min), t_x);
 	we_2_re = min_t(int, we_2_re, TWHR2_AND_WE_2_RE__WE_2_RE);
