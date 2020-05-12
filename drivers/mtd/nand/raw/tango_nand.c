@@ -569,6 +569,7 @@ static int chip_init(struct device *dev, struct device_node *np)
 	chip->legacy.cmd_ctrl = tango_cmd_ctrl;
 	chip->legacy.dev_ready = tango_dev_ready;
 	chip->options = NAND_NO_SUBPAGE_WRITE;
+	nand_controller_init(&nfc->hw);
 	chip->controller = &nfc->hw;
 	chip->controller->flags |= NAND_CONTROLLER_USES_DMA |
 				   NAND_CONTROLLER_WAIT_TCCS;
