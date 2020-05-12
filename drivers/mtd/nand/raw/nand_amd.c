@@ -41,8 +41,8 @@ static int amd_nand_init(struct nand_chip *chip)
 		 * the bad block markers can be in the first, second or last
 		 * page of a block. So let's check all three locations.
 		 */
-		chip->options |= NAND_BBM_FIRSTPAGE | NAND_BBM_SECONDPAGE |
-				 NAND_BBM_LASTPAGE;
+		chip->bbt_options |= NAND_BBM_FIRSTPAGE | NAND_BBM_SECONDPAGE |
+				     NAND_BBM_LASTPAGE;
 
 	return 0;
 }

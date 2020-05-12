@@ -679,9 +679,9 @@ static int hynix_nand_init(struct nand_chip *chip)
 	int ret;
 
 	if (!nand_is_slc(chip))
-		chip->options |= NAND_BBM_LASTPAGE;
+		chip->bbt_options |= NAND_BBM_LASTPAGE;
 	else
-		chip->options |= NAND_BBM_FIRSTPAGE | NAND_BBM_SECONDPAGE;
+		chip->bbt_options |= NAND_BBM_FIRSTPAGE | NAND_BBM_SECONDPAGE;
 
 	hynix = kzalloc(sizeof(*hynix), GFP_KERNEL);
 	if (!hynix)

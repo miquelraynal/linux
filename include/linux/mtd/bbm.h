@@ -97,6 +97,16 @@ struct nand_bbt_descr {
 #define NAND_BBT_NO_OOB_BBM	BIT(14)
 /* This option skips the bbt scan during initialization. */
 #define NAND_BBT_SKIP_SCAN	BIT(15)
+/*
+ * There are different places where the manufacturer stores the factory bad
+ * block markers.
+ *
+ * Position within the block: Each of these pages needs to be checked for a
+ * bad block marking pattern.
+ */
+#define NAND_BBM_FIRSTPAGE	BIT(16)
+#define NAND_BBM_SECONDPAGE	BIT(17)
+#define NAND_BBM_LASTPAGE	BIT(18)
 
 /*
  * Flag set by nand_create_default_bbt_descr(), marking that the nand_bbt_descr

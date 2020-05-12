@@ -206,17 +206,6 @@ enum nand_ecc_algo {
 #define NAND_KEEP_TIMINGS	BIT(23)
 
 /*
- * There are different places where the manufacturer stores the factory bad
- * block markers.
- *
- * Position within the block: Each of these pages needs to be checked for a
- * bad block marking pattern.
- */
-#define NAND_BBM_FIRSTPAGE	BIT(24)
-#define NAND_BBM_SECONDPAGE	BIT(25)
-#define NAND_BBM_LASTPAGE	BIT(26)
-
-/*
  * Some controllers with pipelined ECC engines override the BBM marker with
  * data or ECC bytes, thus making bad block detection through bad block marker
  * impossible. Let's flag those chips so the core knows it shouldn't check the

@@ -42,8 +42,8 @@ static int esmt_nand_init(struct nand_chip *chip)
 		 * of the block, instead of the first or second page. To be on
 		 * the safe side, let's check all three locations.
 		 */
-		chip->options |= NAND_BBM_FIRSTPAGE | NAND_BBM_SECONDPAGE |
-				 NAND_BBM_LASTPAGE;
+		chip->bbt_options |= NAND_BBM_FIRSTPAGE | NAND_BBM_SECONDPAGE |
+				     NAND_BBM_LASTPAGE;
 
 	return 0;
 }

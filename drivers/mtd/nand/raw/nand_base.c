@@ -348,11 +348,11 @@ int nand_bbm_get_next_page(struct nand_chip *chip, int page)
 
 	if (page == 0 && !(chip->options & bbm_flags))
 		return 0;
-	if (page == 0 && chip->options & NAND_BBM_FIRSTPAGE)
+	if (page == 0 && chip->bbt_options & NAND_BBM_FIRSTPAGE)
 		return 0;
-	if (page <= 1 && chip->options & NAND_BBM_SECONDPAGE)
+	if (page <= 1 && chip->bbt_options & NAND_BBM_SECONDPAGE)
 		return 1;
-	if (page <= last_page && chip->options & NAND_BBM_LASTPAGE)
+	if (page <= last_page && chip->bbt_options & NAND_BBM_LASTPAGE)
 		return last_page;
 
 	return -EINVAL;
