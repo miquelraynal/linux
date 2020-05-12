@@ -991,7 +991,7 @@ static int s3c2410_nand_attach_chip(struct nand_chip *chip)
 	}
 
 	if (chip->bbt_options & NAND_BBT_USE_FLASH)
-		chip->options |= NAND_SKIP_BBTSCAN;
+		chip->bbt_options |= NAND_BBT_SKIP_SCAN;
 
 	return 0;
 }

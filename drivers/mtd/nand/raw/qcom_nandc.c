@@ -2836,8 +2836,8 @@ static int qcom_nand_host_init_and_register(struct qcom_nand_controller *nandc,
 	chip->legacy.block_markbad	= qcom_nandc_block_markbad;
 
 	chip->controller = &nandc->controller;
-	chip->options |= NAND_NO_SUBPAGE_WRITE | NAND_USES_DMA |
-			 NAND_SKIP_BBTSCAN;
+	chip->options |= NAND_NO_SUBPAGE_WRITE | NAND_USES_DMA;
+	chip->bbt_options |= NAND_BBT_SKIP_SCAN;
 
 	/* set up initial status value */
 	host->status = NAND_STATUS_READY | NAND_STATUS_WP;

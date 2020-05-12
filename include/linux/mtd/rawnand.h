@@ -165,8 +165,6 @@ enum nand_ecc_algo {
 #define NAND_ROW_ADDR_3		BIT(14)
 
 /* Non chip related options */
-/* This option skips the bbt scan during initialization. */
-#define NAND_SKIP_BBTSCAN	BIT(16)
 /* Chip may not exist, so silence any errors in scan */
 #define NAND_SCAN_SILENT_NODEV	BIT(18)
 

@@ -6012,7 +6012,7 @@ static int nand_scan_tail(struct nand_chip *chip)
 	}
 
 	/* Check, if we should skip the bad block table scan */
-	if (chip->options & NAND_SKIP_BBTSCAN)
+	if (chip->bbt_options & NAND_BBT_SKIP_SCAN)
 		return 0;
 
 	/* Build bad block table */

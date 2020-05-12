@@ -188,7 +188,7 @@ int sm_register_device(struct mtd_info *mtd, int smartmedia)
 	struct nand_flash_dev *flash_ids;
 	int ret;
 
-	chip->options |= NAND_SKIP_BBTSCAN;
+	chip->bbt_options |= NAND_BBT_SKIP_SCAN;
 
 	/* Scan for card properties */
 	chip->legacy.dummy_controller.ops = &sm_controller_ops;

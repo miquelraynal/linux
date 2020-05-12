@@ -2222,7 +2222,7 @@ static int gpmi_nand_attach_chip(struct nand_chip *chip)
 	if (ret)
 		return ret;
 
-	chip->options |= NAND_SKIP_BBTSCAN;
+	chip->bbt_options |= NAND_BBT_SKIP_SCAN;
 
 	return 0;
 }

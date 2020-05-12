@@ -850,7 +850,7 @@ static int fsmc_nand_probe_config_dt(struct platform_device *pdev,
 	}
 
 	if (of_get_property(np, "nand-skip-bbtscan", NULL))
-		nand->options |= NAND_SKIP_BBTSCAN;
+		nand->bbt_options |= NAND_BBT_SKIP_SCAN;
 
 	host->dev_timings = devm_kzalloc(&pdev->dev,
 					 sizeof(*host->dev_timings),

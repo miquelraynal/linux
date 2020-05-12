@@ -1922,7 +1922,7 @@ static int omap_nand_attach_chip(struct nand_chip *chip)
 	if (chip->bbt_options & NAND_BBT_USE_FLASH)
 		chip->bbt_options |= NAND_BBT_NO_OOB;
 	else
-		chip->options |= NAND_SKIP_BBTSCAN;
+		chip->bbt_options |= NAND_BBT_SKIP_SCAN;
 
 	/* Re-populate low-level callbacks based on xfer modes */
 	switch (info->xfer_type) {

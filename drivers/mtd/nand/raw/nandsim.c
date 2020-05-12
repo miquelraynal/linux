@@ -2247,9 +2247,9 @@ static int __init ns_init_module(void)
 
 	chip->ecc.mode   = NAND_ECC_SOFT;
 	chip->ecc.algo   = NAND_ECC_HAMMING;
-	/* The NAND_SKIP_BBTSCAN option is necessary for 'overridesize' */
+	/* The NAND_BBT_SKIP_SCAN option is necessary for 'overridesize' */
 	/* and 'badblocks' parameters to work */
-	chip->options   |= NAND_SKIP_BBTSCAN;
+	chip->bbt_options |= NAND_BBT_SKIP_SCAN;
 
 	switch (bbt) {
 	case 2:

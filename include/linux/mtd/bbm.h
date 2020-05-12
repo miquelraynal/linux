@@ -95,6 +95,8 @@ struct nand_bbt_descr {
  * entire spare area. Must be used with NAND_BBT_USE_FLASH.
  */
 #define NAND_BBT_NO_OOB_BBM	BIT(14)
+/* This option skips the bbt scan during initialization. */
+#define NAND_BBT_SKIP_SCAN	BIT(15)
 
 /*
  * Flag set by nand_create_default_bbt_descr(), marking that the nand_bbt_descr
