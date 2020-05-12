@@ -860,7 +860,7 @@ static int nand_reset_data_interface(struct nand_chip *chip, int chipnr)
 {
 	int ret;
 
-	if (!nand_has_setup_data_iface(chip))
+	if (!nand_controller_has_setup_data_iface(chip))
 		return 0;
 
 	/*
@@ -906,7 +906,7 @@ static int nand_setup_data_interface(struct nand_chip *chip, int chipnr)
 	};
 	int ret;
 
-	if (!nand_has_setup_data_iface(chip))
+	if (!nand_controller_has_setup_data_iface(chip))
 		return 0;
 
 	/* Change the mode on the chip side (if supported by the NAND chip) */
@@ -975,7 +975,7 @@ static int nand_init_data_interface(struct nand_chip *chip)
 {
 	int modes, mode, ret;
 
-	if (!nand_has_setup_data_iface(chip))
+	if (!nand_controller_has_setup_data_iface(chip))
 		return 0;
 
 	/*
