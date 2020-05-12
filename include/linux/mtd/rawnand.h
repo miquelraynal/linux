@@ -128,8 +128,7 @@ enum nand_ecc_algo {
 #define NAND_ECC_SOFT_HAMMING_SM_ORDER	BIT(2)
 
 /*
- * Option constants for bizarre disfunctionality and real
- * features.
+ * NAND chip flags
  */
 
 /* Buswidth is 16 bit */
@@ -140,13 +139,10 @@ enum nand_ecc_algo {
  * autoincrement.
  */
 #define NAND_NEED_READRDY	BIT(8)
-
 /* Chip does not allow subpage writes */
 #define NAND_NO_SUBPAGE_WRITE	BIT(9)
-
 /* Device is one of 'new' xD cards that expose fake nand command set */
 #define NAND_BROKEN_XD		BIT(10)
-
 /* Device behaves just like nand, but is readonly */
 #define NAND_ROM		BIT(11)
 /*
@@ -154,14 +150,10 @@ enum nand_ecc_algo {
  * patterns.
  */
 #define NAND_NEED_SCRAMBLING	BIT(13)
-
 /* Device needs 3rd row address cycle */
 #define NAND_ROW_ADDR_3		BIT(14)
-
-/* Non chip related options */
 /* Chip may not exist, so silence any errors in scan */
 #define NAND_SCAN_SILENT_NODEV	BIT(18)
-
 /*
  * Autodetect nand buswidth with readid/onfi.
  * This suppose the driver will configure the hardware in 8 bits mode
@@ -174,6 +166,10 @@ enum nand_ecc_algo {
  * to select ECC algorithms supported by the boot ROM or similar restrictions.
  */
 #define NAND_IS_BOOT_MEDIUM	BIT(22)
+
+/*
+ * NAND controller flags
+ */
 
 /*
  * The controller (and most probably its embedded ECC engine) does not support
