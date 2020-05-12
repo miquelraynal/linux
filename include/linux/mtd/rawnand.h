@@ -121,6 +121,11 @@ enum nand_ecc_algo {
  * capabilities.
  */
 #define NAND_ECC_MAXIMIZE		BIT(1)
+/*
+ * Specify which byte ordering should be used when using the Hamming software
+ * implementation.
+ */
+#define NAND_ECC_SOFT_HAMMING_SM_ORDER	BIT(2)
 
 /*
  * Option constants for bizarre disfunctionality and real
@@ -129,13 +134,6 @@ enum nand_ecc_algo {
 
 /* Buswidth is 16 bit */
 #define NAND_BUSWIDTH_16	BIT(1)
-
-/*
- * When using software implementation of Hamming, we can specify which byte
- * ordering should be used.
- */
-#define NAND_ECC_SOFT_HAMMING_SM_ORDER	BIT(2)
-
 /* Chip has cache program function */
 #define NAND_CACHEPRG		BIT(3)
 /* Options valid for Samsung large page devices */
