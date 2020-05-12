@@ -1483,7 +1483,7 @@ static void atmel_nand_init(struct atmel_nand_controller *nc,
 	chip->legacy.write_buf = atmel_nand_write_buf;
 	chip->legacy.select_chip = atmel_nand_select_chip;
 
-	if (!nc->mck || !nc->caps->ops->setup_data_interface)
+	if (!nc->mck)
 		chip->options |= NAND_KEEP_TIMINGS;
 
 	/* Some NANDs require a longer delay than the default one (20us). */
