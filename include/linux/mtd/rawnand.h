@@ -175,6 +175,11 @@ enum nand_ecc_algo {
  * before calling nand_scan_tail.
  */
 #define NAND_BUSWIDTH_AUTO      BIT(19)
+/*
+ * Whether the NAND chip is a boot medium. Drivers might use this information
+ * to select ECC algorithms supported by the boot ROM or similar restrictions.
+ */
+#define NAND_IS_BOOT_MEDIUM	BIT(22)
 
 /*
  * This option could be defined by controller drivers to protect against
@@ -191,12 +196,6 @@ enum nand_ecc_algo {
  * this flag.
  */
 #define NAND_WAIT_TCCS		BIT(21)
-
-/*
- * Whether the NAND chip is a boot medium. Drivers might use this information
- * to select ECC algorithms supported by the boot ROM or similar restrictions.
- */
-#define NAND_IS_BOOT_MEDIUM	BIT(22)
 
 /*
  * Do not try to tweak the timings at runtime. This is needed when the
