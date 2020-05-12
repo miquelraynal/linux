@@ -107,6 +107,13 @@ struct nand_bbt_descr {
 #define NAND_BBM_FIRSTPAGE	BIT(16)
 #define NAND_BBM_SECONDPAGE	BIT(17)
 #define NAND_BBM_LASTPAGE	BIT(18)
+/*
+ * Some controllers with pipelined ECC engines override the BBM marker with
+ * data or ECC bytes, thus making bad block detection through bad block marker
+ * impossible. Let's flag those chips so the core knows it shouldn't check the
+ * BBM and consider all blocks good.
+ */
+#define NAND_NO_BBM_QUIRK	BIT(19)
 
 /*
  * Flag set by nand_create_default_bbt_descr(), marking that the nand_bbt_descr

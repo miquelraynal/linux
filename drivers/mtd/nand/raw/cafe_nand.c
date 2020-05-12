@@ -713,10 +713,9 @@ static int cafe_nand_probe(struct pci_dev *pdev,
 	/* Enable the following for a flash based bad block table */
 	cafe->nand.bbt_options = NAND_BBT_USE_FLASH;
 
-	if (skipbbt) {
-		cafe->nand.bbt_options |= NAND_BBT_SKIP_SCAN;
-		cafe->nand.options |= NAND_NO_BBM_QUIRK;
-	}
+	if (skipbbt)
+		cafe->nand.bbt_options |= NAND_BBT_SKIP_SCAN |
+					  NAND_NO_BBM_QUIRK;
 
 	if (numtimings && numtimings != 3) {
 		dev_warn(&cafe->pdev->dev, "%d timing register values ignored; precisely three are required\n", numtimings);

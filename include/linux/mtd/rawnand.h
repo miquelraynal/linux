@@ -205,14 +205,6 @@ enum nand_ecc_algo {
  */
 #define NAND_KEEP_TIMINGS	BIT(23)
 
-/*
- * Some controllers with pipelined ECC engines override the BBM marker with
- * data or ECC bytes, thus making bad block detection through bad block marker
- * impossible. Let's flag those chips so the core knows it shouldn't check the
- * BBM and consider all blocks good.
- */
-#define NAND_NO_BBM_QUIRK	BIT(27)
-
 /**
  * struct nand_parameters - NAND generic parameters from the parameter page
  * @model: Model name

@@ -1462,8 +1462,8 @@ static int __init doc_probe(unsigned long physadr)
 	nand->ecc.strength	= 2;
 	nand->ecc.options	= NAND_ECC_GENERIC_ERASED_CHECK;
 	/* Skip the automatic BBT scan so we can run it manually */
-	nand->bbt_options	= NAND_BBT_USE_FLASH | NAND_BBT_SKIP_SCAN;
-	nand->options		|= NAND_NO_BBM_QUIRK;
+	nand->bbt_options	= NAND_BBT_USE_FLASH | NAND_BBT_SKIP_SCAN |
+				  NAND_NO_BBM_QUIRK;
 
 	doc->physadr		= physadr;
 	doc->virtadr		= virtadr;

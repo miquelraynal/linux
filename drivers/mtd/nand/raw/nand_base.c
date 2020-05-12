@@ -396,7 +396,7 @@ static int nand_block_bad(struct nand_chip *chip, loff_t ofs)
 
 static int nand_isbad_bbm(struct nand_chip *chip, loff_t ofs)
 {
-	if (chip->options & NAND_NO_BBM_QUIRK)
+	if (chip->bbt_options & NAND_NO_BBM_QUIRK)
 		return 0;
 
 	if (chip->legacy.block_bad)
