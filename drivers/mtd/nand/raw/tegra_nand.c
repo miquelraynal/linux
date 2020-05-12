@@ -1104,6 +1104,7 @@ static int tegra_nand_chips_init(struct device *dev,
 
 	chip = &nand->chip;
 	chip->controller = &ctrl->controller;
+	chip->controller->flags = NAND_CONTROLLER_USES_DMA;
 
 	mtd = nand_to_mtd(chip);
 
@@ -1115,7 +1116,7 @@ static int tegra_nand_chips_init(struct device *dev,
 	if (!mtd->name)
 		mtd->name = "tegra_nand";
 
-	chip->options = NAND_NO_SUBPAGE_WRITE | NAND_USES_DMA;
+	chip->options = NAND_NO_SUBPAGE_WRITE;
 
 	ret = nand_scan(chip, 1);
 	if (ret)

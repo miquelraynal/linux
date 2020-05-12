@@ -3300,7 +3300,7 @@ static int nand_do_read_ops(struct nand_chip *chip, loff_t from,
 
 		if (!aligned)
 			use_bounce_buf = 1;
-		else if (chip->options & NAND_USES_DMA)
+		else if (chip->controller->flags & NAND_CONTROLLER_USES_DMA)
 			use_bounce_buf = !virt_addr_valid(buf) ||
 					 !IS_ALIGNED((unsigned long)buf,
 						     chip->buf_align);
@@ -4165,7 +4165,7 @@ static int nand_do_write_ops(struct nand_chip *chip, loff_t to,
 
 		if (part_pagewr)
 			use_bounce_buf = 1;
-		else if (chip->options & NAND_USES_DMA)
+		else if (chip->controller->flags & NAND_CONTROLLER_USES_DMA)
 			use_bounce_buf = !virt_addr_valid(buf) ||
 					 !IS_ALIGNED((unsigned long)buf,
 						     chip->buf_align);
