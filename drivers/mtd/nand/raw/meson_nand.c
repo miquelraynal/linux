@@ -1182,7 +1182,7 @@ static int meson_nand_attach_chip(struct nand_chip *nand)
 	if (nand->bbt_options & NAND_BBT_USE_FLASH)
 		nand->bbt_options |= NAND_BBT_NO_OOB;
 
-	nand->options |= NAND_NO_SUBPAGE_WRITE;
+	nand->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 
 	ret = nand_ecc_choose_conf(nand, nfc->data->ecc_caps,
 				   mtd->oobsize - 2 * nsectors);

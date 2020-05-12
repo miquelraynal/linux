@@ -2571,7 +2571,8 @@ static int brcmnand_attach_chip(struct nand_chip *chip)
 	struct brcmnand_controller *ctrl = host->ctrl;
 	int ret;
 
-	chip->options |= NAND_NO_SUBPAGE_WRITE;
+	chip->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
+
 	/*
 	 * Avoid (for instance) kmap()'d buffers from JFFS2, which we can't DMA
 	 * to/from, and have nand_base pass us a bounce buffer instead, as

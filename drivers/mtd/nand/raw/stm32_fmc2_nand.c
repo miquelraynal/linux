@@ -1949,8 +1949,9 @@ static int stm32_fmc2_probe(struct platform_device *pdev)
 	mtd->dev.parent = dev;
 
 	chip->controller = &fmc2->base;
-	chip->controller->flags |= NAND_CONTROLLER_USES_DMA;
-	chip->options |= NAND_BUSWIDTH_AUTO | NAND_NO_SUBPAGE_WRITE;
+	chip->controller->flags |= NAND_CONTROLLER_USES_DMA |
+				   NAND_CONTROLLER_NO_SUBPAGE_WRITE;
+	chip->options |= NAND_BUSWIDTH_AUTO;
 
 	/* Default ECC settings */
 	chip->ecc.mode = NAND_ECC_HW;

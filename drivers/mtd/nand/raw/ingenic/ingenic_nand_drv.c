@@ -362,11 +362,11 @@ static int ingenic_nand_init_chip(struct platform_device *pdev,
 	chip->legacy.IO_ADDR_R = cs->base + nfc->soc_info->data_offset;
 	chip->legacy.IO_ADDR_W = cs->base + nfc->soc_info->data_offset;
 	chip->legacy.chip_delay = RB_DELAY_US;
-	chip->options = NAND_NO_SUBPAGE_WRITE;
 	chip->legacy.select_chip = ingenic_nand_select_chip;
 	chip->legacy.cmd_ctrl = ingenic_nand_cmd_ctrl;
 	chip->ecc.mode = NAND_ECC_HW;
 	chip->controller = &nfc->controller;
+	chip->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 	nand_set_flash_node(chip, np);
 
 	chip->controller->ops = &ingenic_nand_controller_ops;

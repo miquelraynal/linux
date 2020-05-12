@@ -864,7 +864,6 @@ static int fsl_ifc_chip_init(struct fsl_ifc_mtd *priv)
 
 	/* set up nand options */
 	chip->bbt_options = NAND_BBT_USE_FLASH;
-	chip->options = NAND_NO_SUBPAGE_WRITE;
 
 	if (ifc_in32(&ifc_global->cspr_cs[priv->bank].cspr)
 		& CSPR_PORT_SIZE_16) {
@@ -875,6 +874,7 @@ static int fsl_ifc_chip_init(struct fsl_ifc_mtd *priv)
 	}
 
 	chip->controller = &ifc_nand_ctrl->controller;
+	chip->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 	nand_set_controller_data(chip, priv);
 
 	chip->ecc.read_page = fsl_ifc_read_page;

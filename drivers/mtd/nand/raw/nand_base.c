@@ -3324,8 +3324,8 @@ read_retry:
 				ret = chip->ecc.read_page_raw(chip, bufpoi,
 							      oob_required,
 							      page);
-			else if (!aligned && NAND_HAS_SUBPAGE_READ(chip) &&
-				 !oob)
+			else if (!aligned && !oob &&
+				 NAND_CONTROLLER_HAS_SUBPAGE_READ(chip))
 				ret = chip->ecc.read_subpage(chip, col, bytes,
 							     bufpoi, page);
 			else
@@ -3343,7 +3343,8 @@ read_retry:
 			 * partial pages or when a bounce buffer is required.
 			 */
 			if (use_bounce_buf) {
-				if (!NAND_HAS_SUBPAGE_READ(chip) && !oob &&
+				if (!NAND_CONTROLLER_HAS_SUBPAGE_READ(chip) &&
+				    !oob &&
 				    !(mtd->ecc_stats.failed - ecc_failures) &&
 				    (ops->mode != MTD_OPS_RAW)) {
 					chip->pagecache.page = realpage;
@@ -4076,7 +4077,8 @@ static int nand_write_page(struct nand_chip *chip, uint32_t offset,
 	int status, subpage;
 
 	if (!(chip->options & NAND_NO_SUBPAGE_WRITE) &&
-		chip->ecc.write_subpage)
+	    !(chip->controller->flags & NAND_CONTROLLER_NO_SUBPAGE_WRITE) &&
+	    chip->ecc.write_subpage)
 		subpage = offset || (data_len < mtd->writesize);
 	else
 		subpage = 0;
@@ -5937,7 +5939,9 @@ static int nand_scan_tail(struct nand_chip *chip)
 			chip->base.eccreq.step_size);
 
 	/* Allow subpage writes up to ecc.steps. Not possible for MLC flash */
-	if (!(chip->options & NAND_NO_SUBPAGE_WRITE) && nand_is_slc(chip)) {
+	if (!(chip->options & NAND_NO_SUBPAGE_WRITE) &&
+	    !(chip->controller->flags & NAND_CONTROLLER_NO_SUBPAGE_WRITE) &&
+	    nand_is_slc(chip)) {
 		switch (ecc->steps) {
 		case 2:
 			mtd->subpage_sft = 1;
@@ -5958,7 +5962,7 @@ static int nand_scan_tail(struct nand_chip *chip)
 	switch (ecc->mode) {
 	case NAND_ECC_SOFT:
 		if (chip->page_shift > 9)
-			chip->options |= NAND_SUBPAGE_READ;
+			chip->controller->flags |= NAND_CONTROLLER_SUBPAGE_READ;
 		break;
 
 	default:

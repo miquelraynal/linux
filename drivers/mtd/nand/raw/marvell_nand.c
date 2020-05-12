@@ -2472,7 +2472,7 @@ static int marvell_nand_attach_chip(struct nand_chip *chip)
 		 * allowed and subpage write, if used, would lead to numerous
 		 * uncorrectable ECC errors.
 		 */
-		chip->options |= NAND_NO_SUBPAGE_WRITE;
+		chip->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 	}
 
 	if (pdata || nfc->caps->legacy_of_bindings) {

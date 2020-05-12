@@ -1236,7 +1236,7 @@ int denali_chip_init(struct denali_controller *denali,
 
 	chip->bbt_options |= NAND_BBT_USE_FLASH;
 	chip->bbt_options |= NAND_BBT_NO_OOB;
-	chip->options |= NAND_NO_SUBPAGE_WRITE;
+	chip->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 	chip->ecc.mode = NAND_ECC_HW_SYNDROME;
 	chip->ecc.read_page = denali_read_page;
 	chip->ecc.write_page = denali_write_page;

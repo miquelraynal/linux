@@ -757,7 +757,7 @@ static int lpc32xx_nand_probe(struct platform_device *pdev)
 	nand_chip->ecc.bytes = 10;
 	nand_chip->legacy.waitfunc = lpc32xx_waitfunc;
 
-	nand_chip->options = NAND_NO_SUBPAGE_WRITE;
+	nand_chip->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 	nand_chip->bbt_options = NAND_BBT_USE_FLASH | NAND_BBT_NO_OOB;
 	nand_chip->bbt_td = &lpc32xx_nand_bbt;
 	nand_chip->bbt_md = &lpc32xx_nand_bbt_mirror;

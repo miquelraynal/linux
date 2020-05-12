@@ -1740,9 +1740,9 @@ static int sunxi_nand_attach_chip(struct nand_chip *nand)
 		nand->bbt_options |= NAND_BBT_NO_OOB;
 
 	if (nand->options & NAND_NEED_SCRAMBLING)
-		nand->options |= NAND_NO_SUBPAGE_WRITE;
+		nand->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 
-	nand->options |= NAND_SUBPAGE_READ;
+	nand->controller->flags |= NAND_CONTROLLER_SUBPAGE_READ;
 
 	if (!ecc->size) {
 		ecc->size = nand->base.eccreq.step_size;

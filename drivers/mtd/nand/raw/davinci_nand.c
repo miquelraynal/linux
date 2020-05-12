@@ -573,7 +573,7 @@ static struct davinci_nand_pdata
 		 */
 		if (of_device_is_compatible(pdev->dev.of_node,
 					    "ti,keystone-nand")) {
-			pdata->options |= NAND_NO_SUBPAGE_WRITE;
+			pdata->controller_flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 		}
 	}
 
@@ -759,6 +759,7 @@ static int nand_davinci_probe(struct platform_device *pdev)
 	info->chip.bbt_options	= pdata->bbt_options;
 	/* options such as 16-bit widths */
 	info->chip.options	= pdata->options;
+	info->chip.controller->flags = pdata->controller_flags;
 	info->chip.bbt_td	= pdata->bbt_td;
 	info->chip.bbt_md	= pdata->bbt_md;
 	info->timing		= pdata->timing;

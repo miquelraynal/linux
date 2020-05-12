@@ -104,7 +104,8 @@ static void macronix_nand_onfi_init(struct nand_chip *chip)
 
 	mxic = (struct nand_onfi_vendor_macronix *)p->onfi->vendor;
 	/* Subpage write is prohibited in randomizer operatoin */
-	if (rand_otp && chip->options & NAND_NO_SUBPAGE_WRITE &&
+	if (rand_otp &&
+	    chip->controller->flags & NAND_CONTROLLER_NO_SUBPAGE_WRITE &&
 	    mxic->reliability_func & MACRONIX_RANDOMIZER_BIT) {
 		if (p->supports_set_get_features) {
 			bitmap_set(p->set_feature_list,

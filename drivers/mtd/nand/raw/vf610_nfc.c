@@ -878,8 +878,6 @@ static int vf610_nfc_probe(struct platform_device *pdev)
 		goto err_disable_clk;
 	}
 
-	chip->options |= NAND_NO_SUBPAGE_WRITE;
-
 	init_completion(&nfc->cmd_done);
 
 	err = devm_request_irq(nfc->dev, irq, vf610_nfc_irq, 0, DRV_NAME, nfc);
@@ -893,6 +891,7 @@ static int vf610_nfc_probe(struct platform_device *pdev)
 	nand_controller_init(&nfc->base);
 	nfc->base.ops = &vf610_nfc_controller_ops;
 	chip->controller = &nfc->base;
+	chip->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 
 	/* Scan the NAND chip */
 	err = nand_scan(chip, 1);

@@ -2197,7 +2197,7 @@ static int gpmi_init_last(struct gpmi_nand_data *this)
 	if (GPMI_IS_MX6(this) &&
 		((bch_geo->gf_len * bch_geo->ecc_strength) % 8) == 0) {
 		ecc->read_subpage = gpmi_ecc_read_subpage;
-		chip->options |= NAND_SUBPAGE_READ;
+		chip->controller->flags |= NAND_CONTROLLER_SUBPAGE_READ;
 	}
 
 	return 0;
@@ -2571,7 +2571,6 @@ static int gpmi_nand_init(struct gpmi_nand_data *this)
 	nand_set_flash_node(chip, this->pdev->dev.of_node);
 	chip->legacy.block_markbad = gpmi_block_markbad;
 	chip->badblock_pattern	= &gpmi_bbt_descr;
-	chip->options		|= NAND_NO_SUBPAGE_WRITE;
 
 	/* Set up swap_block_mark, must be set before the gpmi_set_geometry() */
 	this->swap_block_mark = !GPMI_IS_MX23(this);
@@ -2589,6 +2588,7 @@ static int gpmi_nand_init(struct gpmi_nand_data *this)
 	nand_controller_init(&this->base);
 	this->base.ops = &gpmi_nand_controller_ops;
 	chip->controller = &this->base;
+	chip->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 
 	ret = nand_scan(chip, GPMI_IS_MX6(this) ? 2 : 1);
 	if (ret)

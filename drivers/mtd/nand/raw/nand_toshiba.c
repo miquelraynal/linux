@@ -138,7 +138,7 @@ static void toshiba_nand_benand_init(struct nand_chip *chip)
 	chip->ecc.read_page_raw = nand_read_page_raw_notsupp;
 	chip->ecc.write_page_raw = nand_write_page_raw_notsupp;
 
-	chip->options |= NAND_SUBPAGE_READ;
+	chip->controller->flags |= NAND_CONTROLLER_SUBPAGE_READ;
 
 	mtd_set_ooblayout(mtd, &nand_ooblayout_lp_ops);
 }

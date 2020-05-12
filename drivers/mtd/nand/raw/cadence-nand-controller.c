@@ -2612,7 +2612,7 @@ static int cadence_nand_attach_chip(struct nand_chip *chip)
 	chip->bbt_options |= NAND_BBT_NO_OOB;
 	chip->ecc.mode = NAND_ECC_HW;
 
-	chip->options |= NAND_NO_SUBPAGE_WRITE;
+	chip->controller->flags |= NAND_CONTROLLER_NO_SUBPAGE_WRITE;
 
 	cdns_chip->bbm_offs = chip->badblockpos;
 	cdns_chip->bbm_offs &= ~0x01;

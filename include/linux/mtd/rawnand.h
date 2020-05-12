@@ -149,12 +149,6 @@ enum nand_ecc_algo {
 
 /* Device behaves just like nand, but is readonly */
 #define NAND_ROM		BIT(11)
-
-/* Device supports subpage reads */
-#define NAND_SUBPAGE_READ	BIT(12)
-/* Macros to identify the above */
-#define NAND_HAS_SUBPAGE_READ(chip) ((chip->options & NAND_SUBPAGE_READ))
-
 /*
  * Some MLC NANDs need data scrambling to limit bitflips caused by repeated
  * patterns.
@@ -181,6 +175,14 @@ enum nand_ecc_algo {
  */
 #define NAND_IS_BOOT_MEDIUM	BIT(22)
 
+/*
+ * The controller (and most probably its embedded ECC engine) does not support
+ * subpage writes
+ */
+#define NAND_CONTROLLER_NO_SUBPAGE_WRITE BIT(9)
+/* The controller supports subpage reads */
+#define NAND_CONTROLLER_SUBPAGE_READ BIT(12)
+#define NAND_CONTROLLER_HAS_SUBPAGE_READS(chip) ((chip->controller->flags & NAND_CONTROLLER_SUBPAGE_READ))
 /*
  * This option could be defined by controller drivers to protect against
  * kmap'ed, vmalloc'ed highmem buffers being passed from upper layers
