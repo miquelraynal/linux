@@ -4730,9 +4730,9 @@ static void nand_decode_bbm_options(struct nand_chip *chip)
 
 	/* Set the bad block position */
 	if (mtd->writesize > 512 || (chip->options & NAND_BUSWIDTH_16))
-		chip->badblockpos = NAND_BBM_POS_LARGE;
+		chip->badblockpos = 0;
 	else
-		chip->badblockpos = NAND_BBM_POS_SMALL;
+		chip->badblockpos = 5;
 }
 
 static inline bool is_full_id_nand(struct nand_flash_dev *type)
