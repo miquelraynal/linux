@@ -142,6 +142,11 @@ static inline bool nand_controller_has_setup_data_iface(struct nand_chip *chip)
 	return true;
 }
 
+static inline bool nand_has_init_data_interface(struct nand_chip *chip)
+{
+	return chip->ops.init_data_interface;
+}
+
 /* BBT functions */
 int nand_markbad_bbt(struct nand_chip *chip, loff_t offs);
 int nand_isreserved_bbt(struct nand_chip *chip, loff_t offs);
