@@ -100,15 +100,15 @@ enum nand_ecc_algo {
 };
 
 /*
- * Constants for Hardware ECC
+ * ECC engine flags and definitions
  */
+
 /* Reset Hardware ECC for read */
 #define NAND_ECC_READ		0
 /* Reset Hardware ECC for write */
 #define NAND_ECC_WRITE		1
 /* Enable Hardware ECC before syndrome is read back from flash */
 #define NAND_ECC_READSYN	2
-
 /*
  * Enable generic NAND 'page erased' check. This check is only done when
  * ecc.correct() returns -EBADMSG.
