@@ -1081,7 +1081,7 @@ static int __init fsmc_nand_probe(struct platform_device *pdev)
 
 	if (host->dev_timings) {
 		fsmc_nand_setup(host, host->dev_timings);
-		nand->options |= NAND_KEEP_TIMINGS;
+		nand->controller->flags |= NAND_CONTROLLER_KEEP_TIMINGS;
 	}
 
 	if (AMBA_REV_BITS(host->pid) >= 8) {

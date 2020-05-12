@@ -864,7 +864,7 @@ static void s3c2410_nand_init_chip(struct s3c2410_nand_info *info,
 	 * auto-detect timings only when booting with a device tree.
 	 */
 	if (!np)
-		chip->options |= NAND_KEEP_TIMINGS;
+		chip->controller->flags |= NAND_CONTROLLER_KEEP_TIMINGS;
 
 	switch (info->cpu_type) {
 	case TYPE_S3C2410:

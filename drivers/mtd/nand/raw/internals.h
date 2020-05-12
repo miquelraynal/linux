@@ -136,7 +136,7 @@ static inline bool nand_controller_has_setup_data_iface(struct nand_chip *chip)
 	    !chip->controller->ops->setup_data_interface)
 		return false;
 
-	if (chip->options & NAND_KEEP_TIMINGS)
+	if (chip->controller->flags & NAND_CONTROLLER_KEEP_TIMINGS)
 		return false;
 
 	return true;

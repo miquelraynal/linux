@@ -1484,7 +1484,7 @@ static void atmel_nand_init(struct atmel_nand_controller *nc,
 	chip->legacy.select_chip = atmel_nand_select_chip;
 
 	if (!nc->mck)
-		chip->options |= NAND_KEEP_TIMINGS;
+		chip->controller->flags |= NAND_CONTROLLER_KEEP_TIMINGS;
 
 	/* Some NANDs require a longer delay than the default one (20us). */
 	chip->legacy.chip_delay = 40;

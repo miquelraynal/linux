@@ -213,10 +213,10 @@ static void denali_select_target(struct nand_chip *chip, int cs)
 	iowrite32(chip->ecc.size, denali->reg + CFG_LAST_DATA_BLOCK_SIZE);
 	iowrite32(chip->ecc.steps, denali->reg + CFG_NUM_DATA_BLOCKS);
 
-	if (chip->options & NAND_KEEP_TIMINGS)
+	if (chip->controller->flags & NAND_CONTROLLER_KEEP_TIMINGS)
 		return;
 
-	/* update timing registers unless NAND_KEEP_TIMINGS is set */
+	/* update timing registers unless NAND_CONTROLLER_KEEP_TIMINGS is set */
 	iowrite32(sel->hwhr2_and_we_2_re, denali->reg + TWHR2_AND_WE_2_RE);
 	iowrite32(sel->tcwaw_and_addr_2_data,
 		  denali->reg + TCWAW_AND_ADDR_2_DATA);
@@ -1232,7 +1232,7 @@ int denali_chip_init(struct denali_controller *denali,
 
 	/* clk rate info is needed for setup_data_interface */
 	if (!denali->clk_rate || !denali->clk_x_rate)
-		chip->options |= NAND_KEEP_TIMINGS;
+		chip->controller->flags |= NAND_CONTROLLER_KEEP_TIMINGS;
 
 	chip->bbt_options |= NAND_BBT_USE_FLASH;
 	chip->bbt_options |= NAND_BBT_NO_OOB;

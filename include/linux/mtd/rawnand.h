@@ -200,7 +200,7 @@ enum nand_ecc_algo {
  * controller initializes the timings on itself or when it relies on
  * configuration done by the bootloader.
  */
-#define NAND_KEEP_TIMINGS	BIT(23)
+#define NAND_CONTROLLER_KEEP_TIMINGS BIT(23)
 
 /**
  * struct nand_parameters - NAND generic parameters from the parameter page
