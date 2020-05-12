@@ -116,6 +116,10 @@ enum nand_ecc_algo {
  * pages and you want to rely on the default implementation.
  */
 #define NAND_ECC_GENERIC_ERASED_CHECK	BIT(0)
+/*
+ * Try to maximize the ECC correction, based on the chip's and the controller's
+ * capabilities.
+ */
 #define NAND_ECC_MAXIMIZE		BIT(1)
 
 /*
