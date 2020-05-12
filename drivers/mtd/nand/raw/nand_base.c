@@ -902,7 +902,7 @@ static int nand_reset_data_interface(struct nand_chip *chip, int chipnr)
 static int nand_setup_data_interface(struct nand_chip *chip, int chipnr)
 {
 	u8 tmode_param[ONFI_SUBFEATURE_PARAM_LEN] = {
-		chip->onfi_timing_mode_default,
+		chip->default_timing_mode,
 	};
 	int ret;
 
@@ -937,9 +937,9 @@ static int nand_setup_data_interface(struct nand_chip *chip, int chipnr)
 	if (ret)
 		goto err_reset_chip;
 
-	if (tmode_param[0] != chip->onfi_timing_mode_default) {
+	if (tmode_param[0] != chip->default_timing_mode) {
 		pr_warn("timing mode %d not acknowledged by the NAND chip\n",
-			chip->onfi_timing_mode_default);
+			chip->default_timing_mode);
 		goto err_reset_chip;
 	}
 
@@ -966,9 +966,8 @@ err_reset_chip:
  * and the driver.
  * First tries to retrieve supported timing modes from ONFI information,
  * and if the NAND chip does not support ONFI, relies on the
- * ->onfi_timing_mode_default specified in the nand_ids table. After this
- * function nand_chip->data_interface is initialized with the best timing mode
- * available.
+ * ->default_timing_mode specified in the nand_ids table. After this function
+ * nand_chip->data_interface is initialized with the best timing mode available.
  *
  * Returns 0 for success or negative error code otherwise.
  */
@@ -987,10 +986,10 @@ static int nand_init_data_interface(struct nand_chip *chip)
 	if (chip->parameters.onfi) {
 		modes = chip->parameters.onfi->async_timing_mode;
 	} else {
-		if (!chip->onfi_timing_mode_default)
+		if (!chip->default_timing_mode)
 			return 0;
 
-		modes = GENMASK(chip->onfi_timing_mode_default, 0);
+		modes = GENMASK(chip->default_timing_mode, 0);
 	}
 
 	for (mode = fls(modes) - 1; mode >= 0; mode--) {
@@ -1006,7 +1005,7 @@ static int nand_init_data_interface(struct nand_chip *chip)
 						 NAND_DATA_IFACE_CHECK_ONLY,
 						 &chip->data_interface);
 		if (!ret) {
-			chip->onfi_timing_mode_default = mode;
+			chip->default_timing_mode = mode;
 			break;
 		}
 	}
@@ -2461,7 +2460,7 @@ int nand_reset(struct nand_chip *chip, int chipnr)
 	 * nand_setup_data_interface() uses ->set/get_features() which would
 	 * fail anyway as the parameter page is not available yet.
 	 */
-	if (!chip->onfi_timing_mode_default)
+	if (!chip->default_timing_mode)
 		return 0;
 
 	chip->data_interface = saved_data_intf;
@@ -4762,8 +4761,7 @@ static bool find_full_id_nand(struct nand_chip *chip,
 		chip->options |= type->options;
 		chip->base.eccreq.strength = NAND_ECC_STRENGTH(type);
 		chip->base.eccreq.step_size = NAND_ECC_STEP(type);
-		chip->onfi_timing_mode_default =
-					type->onfi_timing_mode_default;
+		chip->default_timing_mode = type->onfi_timing_mode_default;
 
 		chip->parameters.model = kstrdup(type->name, GFP_KERNEL);
 		if (!chip->parameters.model)
