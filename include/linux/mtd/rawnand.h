@@ -227,7 +227,6 @@ enum nand_ecc_algo {
 #define NAND_NO_BBM_QUIRK	BIT(27)
 
 /* Cell info constants */
-#define NAND_CI_CHIPNR_MSK	0x03
 #define NAND_CI_CELLTYPE_MSK	0x0C
 #define NAND_CI_CELLTYPE_SHIFT	2
 
