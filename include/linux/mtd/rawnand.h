@@ -134,11 +134,6 @@ enum nand_ecc_algo {
 
 /* Buswidth is 16 bit */
 #define NAND_BUSWIDTH_16	BIT(1)
-/* Chip has cache program function */
-#define NAND_CACHEPRG		BIT(3)
-/* Options valid for Samsung large page devices */
-#define NAND_SAMSUNG_LP_OPTIONS NAND_CACHEPRG
-
 /*
  * Chip requires ready check on read (for auto-incremented sequential read).
  * True only for small page devices; large page devices do not support

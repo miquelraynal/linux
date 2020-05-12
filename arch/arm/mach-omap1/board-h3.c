@@ -193,7 +193,6 @@ static struct platform_nand_data nand_platdata = {
 		.chip_offset		= 0,
 		.nr_partitions		= ARRAY_SIZE(nand_partitions),
 		.partitions		= nand_partitions,
-		.options		= NAND_SAMSUNG_LP_OPTIONS,
 	},
 	.ctrl	= {
 		.cmd_ctrl	= omap1_nand_cmd_ctl,

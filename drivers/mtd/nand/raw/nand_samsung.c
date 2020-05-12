@@ -118,9 +118,6 @@ static int samsung_nand_init(struct nand_chip *chip)
 {
 	struct mtd_info *mtd = nand_to_mtd(chip);
 
-	if (mtd->writesize > 512)
-		chip->options |= NAND_SAMSUNG_LP_OPTIONS;
-
 	if (!nand_is_slc(chip))
 		chip->options |= NAND_BBM_LASTPAGE;
 	else
