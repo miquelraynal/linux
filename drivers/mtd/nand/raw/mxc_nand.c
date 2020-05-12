@@ -1809,9 +1809,6 @@ static int mxcnd_probe(struct platform_device *pdev)
 	if (err < 0)
 		return err;
 
-	if (!host->devtype_data->setup_data_interface)
-		this->options |= NAND_KEEP_TIMINGS;
-
 	if (host->devtype_data->needs_ip) {
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 		host->regs_ip = devm_ioremap_resource(&pdev->dev, res);
