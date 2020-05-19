@@ -273,6 +273,58 @@ static const struct nand_data_interface onfi_sdr_timings[] = {
 	},
 };
 
+unsigned int onfi_find_equivalent_sdr_mode(const struct nand_sdr_timings *vendor_timings)
+{
+	const struct nand_sdr_timings *onfi_timings;
+	int mode;
+
+	for (mode = ARRAY_SIZE(onfi_sdr_timings) - 1; mode > 0; mode--) {
+		onfi_timings = &onfi_sdr_timings[mode].timings.sdr;
+
+		if (vendor_timings->tCCS_min > onfi_timings->tCCS_min ||
+		    vendor_timings->tR_max < onfi_timings->tR_max ||
+		    vendor_timings->tADL_min > onfi_timings->tADL_min ||
+		    vendor_timings->tALH_min > onfi_timings->tALH_min ||
+		    vendor_timings->tALS_min > onfi_timings->tALS_min ||
+		    vendor_timings->tAR_min > onfi_timings->tAR_min ||
+		    vendor_timings->tCEA_max < onfi_timings->tCEA_max ||
+		    vendor_timings->tCEH_min > onfi_timings->tCEH_min ||
+		    vendor_timings->tCH_min > onfi_timings->tCH_min ||
+		    vendor_timings->tCHZ_max < onfi_timings->tCHZ_max ||
+		    vendor_timings->tCLH_min > onfi_timings->tCLH_min ||
+		    vendor_timings->tCLR_min > onfi_timings->tCLR_min ||
+		    vendor_timings->tCLS_min > onfi_timings->tCLS_min ||
+		    vendor_timings->tCOH_min > onfi_timings->tCOH_min ||
+		    vendor_timings->tCS_min > onfi_timings->tCS_min ||
+		    vendor_timings->tDH_min > onfi_timings->tDH_min ||
+		    vendor_timings->tDS_min > onfi_timings->tDS_min ||
+		    vendor_timings->tFEAT_max < onfi_timings->tFEAT_max ||
+		    vendor_timings->tIR_min > onfi_timings->tIR_min ||
+		    vendor_timings->tITC_max < onfi_timings->tITC_max ||
+		    vendor_timings->tRC_min > onfi_timings->tRC_min ||
+		    vendor_timings->tREA_max < onfi_timings->tREA_max ||
+		    vendor_timings->tREH_min > onfi_timings->tREH_min ||
+		    vendor_timings->tRHOH_min > onfi_timings->tRHOH_min ||
+		    vendor_timings->tRHW_min > onfi_timings->tRHW_min ||
+		    vendor_timings->tRHZ_max < onfi_timings->tRHZ_max ||
+		    vendor_timings->tRLOH_min > onfi_timings->tRLOH_min ||
+		    vendor_timings->tRP_min > onfi_timings->tRP_min ||
+		    vendor_timings->tRR_min > onfi_timings->tRR_min ||
+		    vendor_timings->tRST_max < onfi_timings->tRST_max ||
+		    vendor_timings->tWB_max < onfi_timings->tWB_max ||
+		    vendor_timings->tWC_min > onfi_timings->tWC_min ||
+		    vendor_timings->tWH_min > onfi_timings->tWH_min ||
+		    vendor_timings->tWHR_min > onfi_timings->tWHR_min ||
+		    vendor_timings->tWP_min > onfi_timings->tWP_min ||
+		    vendor_timings->tWW_min > onfi_timings->tWW_min)
+			continue;
+
+		return mode;
+	}
+
+	return 0;
+}
+
 /**
  * onfi_fill_data_interface - [NAND Interface] Initialize a data interface from
  * given ONFI mode

@@ -87,6 +87,7 @@ int nand_erase_nand(struct nand_chip *chip, struct erase_info *instr,
 int onfi_fill_data_interface(struct nand_chip *chip,
 			     enum nand_data_interface_type type,
 			     int timing_mode);
+unsigned int onfi_find_equivalent_sdr_mode(const struct nand_sdr_timings *vendor_timings);
 int nand_get_features(struct nand_chip *chip, int addr, u8 *subfeature_param);
 int nand_set_features(struct nand_chip *chip, int addr, u8 *subfeature_param);
 int nand_read_page_raw_notsupp(struct nand_chip *chip, u8 *buf,
