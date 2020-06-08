@@ -36,6 +36,18 @@
 		device_type = "memory";
 		reg = <0x0 0x0 0x0 0x80000000>;
 	};
+
+	fclk: fclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <25000000>;
+	};
+
+	sclk: sclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <12500000>;
+	};
 };
 
 &can1 {
@@ -152,6 +164,12 @@
 
 		/* 3, 6 not connected */
 	};
+};
+
+&i3c0 {
+	status = "okay";
+	clocks = <&zynqmp_clk 71>, <&fclk>, <&sclk>;
+	i2c-scl-hz = <100000>;
 };
 
 &rtc {
