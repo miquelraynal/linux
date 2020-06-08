@@ -539,6 +539,19 @@
 			power-domains = <&zynqmp_firmware PD_I2C_1>;
 		};
 
+		/* Test values - addresses, clocks, irqs are just placeholders */
+		i3c0: i3c-master@a0000000 {
+			compatible = "silvaco,i3c-master";
+			status = "disabled";
+			clock-names = "pclk", "fast_clk", "slow_clk";
+			interrupt-parent = <&gic>;
+			interrupts = <0 89 4>;
+			interrupt-names = "int_req";
+			reg = <0x0 0xa0000000 0x0 0x1000>;
+			#address-cells = <3>;
+			#size-cells = <0>;
+		};
+
 		pcie: pcie@fd0e0000 {
 			compatible = "xlnx,nwl-pcie-2.11";
 			status = "disabled";
