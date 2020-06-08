@@ -122,5 +122,6 @@
 #define GEM2_REF_UNG		110
 #define GEM3_REF_UNG		111
 #define LPD_WDT			112
+#define I3C0_REF		113
 
 #endif

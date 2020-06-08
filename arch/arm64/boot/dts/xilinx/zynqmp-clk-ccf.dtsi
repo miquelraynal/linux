@@ -156,6 +156,10 @@
 	clocks = <&zynqmp_clk I2C1_REF>;
 };
 
+&i3c0 {
+	clocks = <&zynqmp_clk I3C0_REF>;
+};
+
 &pcie {
 	clocks = <&zynqmp_clk PCIE_REF>;
 };
