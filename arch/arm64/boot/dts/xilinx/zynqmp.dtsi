@@ -552,6 +552,18 @@
 			#size-cells = <0>;
 		};
 
+		/* Placeholder for GPIO in I3C Subsystem */
+		gpio_i3c: svc-i3c-gpio@a0003000 {
+			compatible = "generic-uio";
+			reg = <0x0 0xa0003000 0x0 0x1000>;
+		};
+
+		/* Placeholder for Generic Regs in I3C Subsystem */
+		genreg_i3c: svc-i3c-genreg@a0004000 {
+			compatible = "generic-uio";
+			reg = <0x0 0xa0004000 0x0 0x1000>;
+		};
+
 		pcie: pcie@fd0e0000 {
 			compatible = "xlnx,nwl-pcie-2.11";
 			status = "disabled";
