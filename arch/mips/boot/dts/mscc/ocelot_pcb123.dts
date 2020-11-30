@@ -29,10 +29,30 @@
 &spi {
 	status = "okay";
 
-	flash@0 {
+	spi-flash@0 {
+		label = "spi_flash";
 		compatible = "macronix,mx25l25635f", "jedec,spi-nor";
 		spi-max-frequency = <20000000>;
 		reg = <0>;
+	};
+	spi-flash@1 {
+		compatible = "spi-nand";
+		pinctrl-0 = <&cs1_pins>;
+		pinctrl-names = "default";
+		spi-max-frequency = <31000000>;
+		reg = <1>; /* CS1 */
+		nand-use-soft-ecc-engine;
+		nand-ecc-algo = "hamming";
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			/* 256MiB */
+			partition@0 {
+				    label = "rootfs_nand_data";
+				    reg = <0x0000000 0x10000000>;
+			};
+		};
 	};
 };
 

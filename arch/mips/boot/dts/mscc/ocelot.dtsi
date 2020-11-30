@@ -214,6 +214,11 @@
 				function = "uart2";
 			};
 
+			cs1_pins: cs1-pins {
+				pins = "GPIO_8";
+				function = "si";
+			};
+
 			miim1: miim1 {
 				pins = "GPIO_14", "GPIO_15";
 				function = "miim";

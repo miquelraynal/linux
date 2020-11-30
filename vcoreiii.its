@@ -1,0 +1,55 @@
+/dts-v1/;
+/ {
+    description = "FIT image file for Webstax on vcoreiii";
+    images {
+        kernel {
+            description = "Linux kernel";
+            data = /incbin/("./build/arch/mips/boot/vmlinux.bin.gz");
+            type = "kernel";
+            arch = "mips";
+            os = "linux";
+            compression = "gzip";
+            load = <0x80100000>;
+            entry = <0x80100000>;
+        };
+        ramdisk {
+            description = "ramdisk";
+            data = /incbin/("./build/rootfs.squashfs");
+            type = "ramdisk";
+            arch = "mips";
+            os = "linux";
+            compression = "none";
+        };
+        fdt_ocelot_pcb120 {
+            description = "Flattened Device Tree blob";
+            data = /incbin/("./build/arch/mips/boot/dts/mscc/ocelot_pcb120.dtb");
+            type = "flat_dt";
+            arch = "mips";
+            compression = "none";
+        };
+        fdt_ocelot_pcb123 {
+            description = "Flattened Device Tree blob";
+            data = /incbin/("./build/arch/mips/boot/dts/mscc/ocelot_pcb123.dtb");
+            type = "flat_dt";
+            arch = "mips";
+            compression = "none";
+        };
+    };
+
+    configurations {
+        default = "pcb123";
+        pcb120 {
+            description = "Boot Linux kernel with DT for ocelot_pcb120";
+            kernel = "kernel";
+            fdt = "fdt_ocelot_pcb120";
+            ramdisk = "ramdisk";
+        };
+        pcb123 {
+            description = "Boot Linux kernel with DT for ocelot_pcb123";
+            kernel = "kernel";
+            fdt = "fdt_ocelot_pcb123";
+            ramdisk = "ramdisk";
+        };
+    };
+};
+
