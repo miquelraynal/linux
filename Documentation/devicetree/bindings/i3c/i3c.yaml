@@ -84,7 +84,7 @@ patternProperties:
       - compatible
       - reg
 
-  "^.*@[0-9a-f]+,[0-9a-f]+$":
+  "@[0-9a-f]+,[0-9a-f]+$":
     type: object
     description: |
       I3C child, should be named: <device-type>@<static-i2c-address>,<i3c-pid>
