@@ -75,36 +75,10 @@ patternProperties:
 
       reg:
         items:
-          - description: |
-              1st cell
-              ========
-
-              I2C address. 10 bit addressing is not supported. Devices with
-              10-bit address can't be properly passed through DEFSLVS command.
-
-              2nd cell
-              ========
-
-              Should be 0.
-
-              3rd cell
-              ========
-
-              Shall encode the I3C LVR (Legacy Virtual Register):
-              bit[31:8]: unused/ignored
-              bit[7:5]: I2C device index. Possible values:
-                * 0: I2C device has a 50 ns spike filter
-                * 1: I2C device does not have a 50 ns spike filter but supports
-                     high frequency on SCL
-                * 2: I2C device does not have a 50 ns spike filter and is not
-                     tolerant to high frequencies
-                * 3-7: reserved
-              bit[4]: tell whether the device operates in FM (Fast Mode) or
-                      FM+ mode:
-                * 0: FM+ mode
-                * 1: FM mode
-              bit[3:0]: device type
-                * 0-15: reserved
+          - items:
+              - description: first cell (tbd)
+              - description: second cell (tbd)
+              - description: third cell (tbd)
 
     required:
       - compatible
@@ -118,22 +92,10 @@ patternProperties:
     properties:
       reg:
         items:
-          - description: |
-              1st cell
-              ========
-
-              Encodes the static I2C address. Should be 0 if the device does not
-              have one (0 is not a valid I2C address).
-
-              2nd and 3rd cells
-              =================
-
-              ProvisionalID (following the PID definition provided by the I3C
-              specification).
-
-              Cell 2 contains the manufacturer ID left-shifted by 1. Cell 3
-              contains the ORing of the part ID left-shifted by 16, the instance
-              ID left-shifted by 12 and extra information.
+          - items:
+              - description: first cell (tbd)
+              - description: second cell (tbd)
+              - description: third cell (tbd)
 
       assigned-address:
         $ref: /schemas/types.yaml#/definitions/uint32
