@@ -479,9 +479,14 @@ EXPORT_SYMBOL_GPL(mxic_ecc_process_data);
 static void mxic_ecc_extract_status_bytes(struct mxic_ecc_engine *eng, u8 *buf)
 {
 	int next_stat_pos;
-	int step;
+	int step, i;
 
 	/* Extract the ECC status */
+	printk("%s [%d]\n", __func__, __LINE__);
+	for (i = 0; i < (64 + 8); i++)
+		printk(KERN_CONT "%02x ", buf[i]);
+	printk(KERN_CONT "\n");
+
 	for (step = 0; step < eng->steps; step++) {
 		next_stat_pos = eng->oob_step_sz +
 				((STAT_BYTES + eng->oob_step_sz) * step);
