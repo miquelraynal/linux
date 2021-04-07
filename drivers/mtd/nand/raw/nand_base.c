@@ -1004,8 +1004,8 @@ int nand_choose_best_nvddr_timings(struct nand_chip *chip,
 	} else if (chip->parameters.onfi) {
 		best_mode = fls(chip->parameters.onfi->nvddr_timing_modes) - 1;
 		printk("%s [%d] best mode %d\n", __func__, __LINE__, best_mode);
-		printk("%s [%d] HACK: force best nvddr mode to be 1\n", __func__, __LINE__);
-		best_mode = 1;
+		printk("%s [%d] HACK: force best nvddr mode to be 0\n", __func__, __LINE__);
+		best_mode = 0;
 	}
 
 	for (mode = best_mode; mode >= 0; mode--) {
