@@ -865,18 +865,23 @@ static int anfc_setup_interface(struct nand_chip *chip, int target,
 	const struct nand_nvddr_timings *nvddr;
 
 	if (nand_interface_is_nvddr(conf)) {
+		printk("%s [%d] is nvddr\n", __func__, __LINE__);
 		nvddr = nand_get_nvddr_timings(conf);
 		if (IS_ERR(nvddr))
 			return PTR_ERR(nvddr);
 	} else {
+		printk("%s [%d] is sdr\n", __func__, __LINE__);
 		sdr = nand_get_sdr_timings(conf);
 		if (IS_ERR(sdr))
 			return PTR_ERR(sdr);
 	}
 
-	if (target < 0)
+	if (target < 0) {
+		printk("%s [%d] check only\n", __func__, __LINE__);
 		return 0;
+	}
 
+	printk("%s [%d]\n", __func__, __LINE__);
 	if (nand_interface_is_nvddr(conf))
 		anand->timings = DIFACE_NVDDR |
 				 DIFACE_DDR_MODE(conf->timings.mode);

@@ -854,6 +854,7 @@ static int nand_setup_interface(struct nand_chip *chip, int chipnr)
 	else
 		request |= ONFI_DATA_INTERFACE_NVDDR;
 	tmode_param[0] = request;
+	printk("%s [%d] send tmode_param: 0x%02x\n", __func__, __LINE__, request);
 
 	/* Change the mode on the chip side (if supported by the NAND chip) */
 	if (nand_supports_set_features(chip, ONFI_FEATURE_ADDR_TIMING_MODE)) {
@@ -882,13 +883,13 @@ static int nand_setup_interface(struct nand_chip *chip, int chipnr)
 	if (ret)
 		goto err_reset_chip;
 
+	pr_warn("NAND chip will work in %s timing mode %d\n",
+		tmode_param[0] & ONFI_DATA_INTERFACE_NVDDR ? "NV-DDR" : "SDR",
+		(unsigned int) ONFI_TIMING_MODE_PARAM(tmode_param[0]));
 	if (request != tmode_param[0]) {
 		pr_warn("%s timing mode %d not acknowledged by the NAND chip\n",
 			nand_interface_is_nvddr(chip->best_interface_config) ? "NV-DDR" : "SDR",
 			chip->best_interface_config->timings.mode);
-		pr_warn("NAND chip will work in %s timing mode %d\n",
-			tmode_param[0] & ONFI_DATA_INTERFACE_NVDDR ? "NV-DDR" : "SDR",
-			(unsigned int) ONFI_TIMING_MODE_PARAM(tmode_param[0]));
 		goto err_reset_chip;
 	}
 
@@ -937,14 +938,17 @@ int nand_choose_best_sdr_timings(struct nand_chip *chip,
 		ret = ops->setup_interface(chip, NAND_DATA_IFACE_CHECK_ONLY,
 					   iface);
 		if (!ret) {
+			printk("%s [%d]\n", __func__, __LINE__);
 			chip->best_interface_config = iface;
 			return ret;
 		}
 
 		/* Fallback to slower modes */
 		best_mode = iface->timings.mode;
+		printk("%s [%d] best mode %d\n", __func__, __LINE__, best_mode);
 	} else if (chip->parameters.onfi) {
 		best_mode = fls(chip->parameters.onfi->sdr_timing_modes) - 1;
+		printk("%s [%d] best mode %d\n", __func__, __LINE__, best_mode);
 	}
 
 	for (mode = best_mode; mode >= 0; mode--) {
@@ -952,6 +956,7 @@ int nand_choose_best_sdr_timings(struct nand_chip *chip,
 
 		ret = ops->setup_interface(chip, NAND_DATA_IFACE_CHECK_ONLY,
 					   iface);
+		printk("%s [%d] mode %d, ret %d\n", __func__, __LINE__, mode, ret);
 		if (!ret)
 			break;
 	}
@@ -988,14 +993,17 @@ int nand_choose_best_nvddr_timings(struct nand_chip *chip,
 		ret = ops->setup_interface(chip, NAND_DATA_IFACE_CHECK_ONLY,
 					   iface);
 		if (!ret) {
+			printk("%s [%d]\n", __func__, __LINE__);
 			chip->best_interface_config = iface;
 			return ret;
 		}
 
 		/* Fallback to slower modes */
 		best_mode = iface->timings.mode;
+		printk("%s [%d] best mode %d\n", __func__, __LINE__, best_mode);
 	} else if (chip->parameters.onfi) {
 		best_mode = fls(chip->parameters.onfi->nvddr_timing_modes) - 1;
+		printk("%s [%d] best mode %d\n", __func__, __LINE__, best_mode);
 	}
 
 	for (mode = best_mode; mode >= 0; mode--) {
@@ -1003,6 +1011,7 @@ int nand_choose_best_nvddr_timings(struct nand_chip *chip,
 
 		ret = ops->setup_interface(chip, NAND_DATA_IFACE_CHECK_ONLY,
 					   iface);
+		printk("%s [%d] mode %d, ret %d\n", __func__, __LINE__, mode, ret);
 		if (!ret)
 			break;
 	}
@@ -1041,17 +1050,23 @@ static int nand_choose_best_timings(struct nand_chip *chip,
 		valid_nvddr_timings = true;
 	}
 
+	printk("%s [%d] ret %d\n", __func__, __LINE__, ret);
 	/* Fallback to SDR timings */
 	ret = nand_choose_best_sdr_timings(chip, iface, NULL);
 	if (ret)
 		return ret;
 
 	best_sdr_mode = chip->best_interface_config->timings.mode;
+	printk("%s [%d] best sdr mode %d\n", __func__, __LINE__, best_sdr_mode);
 	if (!valid_nvddr_timings || best_sdr_mode == 5)
 		return 0;
 
 	/* Eventually go back to faster NV-DDR mode 0 */
-	return nand_choose_best_nvddr_timings(chip, iface, NULL);
+	ret= nand_choose_best_nvddr_timings(chip, iface, NULL);
+	printk("%s [%d] best nvddr timing %d\n", __func__, __LINE__,
+	       chip->best_interface_config->timings.mode);
+
+	return ret;
 }
 
 /**
