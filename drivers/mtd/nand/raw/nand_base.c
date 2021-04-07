@@ -949,8 +949,8 @@ int nand_choose_best_sdr_timings(struct nand_chip *chip,
 	} else if (chip->parameters.onfi) {
 		best_mode = fls(chip->parameters.onfi->sdr_timing_modes) - 1;
 		printk("%s [%d] best mode %d\n", __func__, __LINE__, best_mode);
-		printk("%s [%d] HACK: force best sdr mode to be 4\n", __func__, __LINE__);
-		best_mode = 4;
+		printk("%s [%d] HACK: force best sdr mode to be 3\n", __func__, __LINE__);
+		best_mode = 3;
 	}
 
 	for (mode = best_mode; mode >= 0; mode--) {
