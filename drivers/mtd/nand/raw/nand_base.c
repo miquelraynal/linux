@@ -949,6 +949,8 @@ int nand_choose_best_sdr_timings(struct nand_chip *chip,
 	} else if (chip->parameters.onfi) {
 		best_mode = fls(chip->parameters.onfi->sdr_timing_modes) - 1;
 		printk("%s [%d] best mode %d\n", __func__, __LINE__, best_mode);
+		printk("%s [%d] HACK: force best sdr mode to be 4\n", __func__, __LINE__);
+		best_mode = 4;
 	}
 
 	for (mode = best_mode; mode >= 0; mode--) {
@@ -1038,7 +1040,7 @@ static int nand_choose_best_timings(struct nand_chip *chip,
 	bool valid_nvddr_timings = false;
 	unsigned int best_sdr_mode;
 	int ret;
-
+#if 0
 	/* Try the fastest timings: NV-DDR */
 	ret = nand_choose_best_nvddr_timings(chip, iface, NULL);
 	if (!ret) {
@@ -1053,6 +1055,7 @@ static int nand_choose_best_timings(struct nand_chip *chip,
 	}
 
 	printk("%s [%d] ret %d\n", __func__, __LINE__, ret);
+#endif
 	/* Fallback to SDR timings */
 	ret = nand_choose_best_sdr_timings(chip, iface, NULL);
 	if (ret)
