@@ -302,9 +302,9 @@ static int anfc_read_page_hw_ecc(struct nand_chip *chip, u8 *buf,
 	struct mtd_info *mtd = nand_to_mtd(chip);
 	struct anand *anand = to_anand(chip);
 	unsigned int len = mtd->writesize + (oob_required ? mtd->oobsize : 0);
-	unsigned int max_bitflips = 0;
+//	unsigned int max_bitflips = 0;
 	dma_addr_t dma_addr;
-	int step, ret;
+	int /*step,*/ ret;
 	struct anfc_op nfc_op = {
 		.pkt_reg =
 			PKT_SIZE(chip->ecc.size) |
@@ -350,6 +350,7 @@ static int anfc_read_page_hw_ecc(struct nand_chip *chip, u8 *buf,
 	if (ret)
 		return ret;
 
+#if 0
 	/*
 	 * For each step, compute by softare the BCH syndrome over the raw data.
 	 * Compare the theoretical amount of errors and compare with the
@@ -397,7 +398,7 @@ static int anfc_read_page_hw_ecc(struct nand_chip *chip, u8 *buf,
 			mtd->ecc_stats.failed++;
 		}
 	}
-
+#endif
 	return 0;
 }
 
