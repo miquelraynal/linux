@@ -1042,7 +1042,7 @@ static int nand_choose_best_timings(struct nand_chip *chip,
 	/* Try the fastest timings: NV-DDR */
 	ret = nand_choose_best_nvddr_timings(chip, iface, NULL);
 	if (!ret) {
-		if (chip->best_interface_config->timings.mode != 0)
+//		if (chip->best_interface_config->timings.mode != 0)
 			return 0;
 
 		/*
