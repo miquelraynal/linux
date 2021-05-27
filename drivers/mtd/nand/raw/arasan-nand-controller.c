@@ -1026,6 +1026,7 @@ static int anfc_setup_interface(struct nand_chip *chip, int target,
 		anand->timings = tccs_min | fast_tcad |
 				 DQS_BUFF_SEL_IN(dqs_mode) |
 				 DQS_BUFF_SEL_OUT(dqs_mode);
+		printk("%s [%d] anand->timings 0x%08x\n", __func__, __LINE__, anand->timings);
 	}
 
 	anand->clk = ANFC_XLNX_SDR_DFLT_CORE_CLK;
