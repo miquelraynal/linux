@@ -13,5 +13,7 @@ int nl802154_advertise_known_coordinator(struct wpan_phy *wpan_phy,
 int nl802154_send_start_scan(struct wpan_phy *wpan_phy, struct wpan_dev *wpan_dev);
 int nl802154_send_scan_done(struct wpan_phy *wpan_phy, struct wpan_dev *wpan_dev,
 			    struct cfg802154_scan_request *request, u8 cmd);
+void nl802154_end_beaconing(struct wpan_dev *wpan_dev,
+			    struct cfg802154_beacon_request *request);
 
 #endif /* __IEEE802154_NL802154_H */
