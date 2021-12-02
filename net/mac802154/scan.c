@@ -47,6 +47,8 @@ static int mac802154_end_of_scan(struct ieee802154_local *local,
 {
 	u8 cmd;
 
+	drv_exit_scan_mode(local);
+
 	drv_set_channel(local, local->phy->current_page,
 			local->phy->current_channel);
 	ieee802154_configure_durations(local->phy, local->phy->current_page,
@@ -232,6 +234,13 @@ int mac802154_trigger_scan_locked(struct ieee802154_sub_if_data *sdata,
 	/* Starting a background job, ensure the module cannot be removed */
 	if (!try_module_get(local->hw.parent->driver->owner))
 		return -ENODEV;
+
+	/* Let the drivers know  about the starting scanning operation */
+	ret = drv_enter_scan_mode(local, request);
+	if (ret) {
+		module_put(local->hw.parent->driver->owner);
+		return ret;
+	}
 
 	/* Software scanning requires to set promiscuous mode, so we need to
 	 * pause the Tx queue during the entire operation.
