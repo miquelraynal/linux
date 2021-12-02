@@ -69,6 +69,7 @@ static int mac802154_scan_cleanup_locked(struct ieee802154_local *local,
 	ieee802154_mlme_op_post(local);
 
 	/* Set the hardware back in its original state */
+	drv_exit_scan_mode(local);
 	drv_set_channel(local, wpan_phy->current_page,
 			wpan_phy->current_channel);
 	ieee802154_configure_durations(wpan_phy, wpan_phy->current_page,
@@ -272,6 +273,7 @@ int mac802154_trigger_scan_locked(struct ieee802154_sub_if_data *sdata,
 				  struct cfg802154_scan_request *request)
 {
 	struct ieee802154_local *local = sdata->local;
+	int ret;
 
 	ASSERT_RTNL();
 
@@ -284,6 +286,11 @@ int mac802154_trigger_scan_locked(struct ieee802154_sub_if_data *sdata,
 
 	/* Store scanning parameters */
 	rcu_assign_pointer(local->scan_req, request);
+
+	/* Let the drivers know about the starting scanning operation */
+	ret = drv_enter_scan_mode(local, request);
+	if (ret)
+		return ret;
 
 	/* Software scanning requires to set promiscuous mode, so we need to
 	 * pause the Tx queue during the entire operation.
