@@ -18,6 +18,7 @@
 
 #include "ieee802154.h"
 #include "../ieee802154/nl802154.h"
+#include "trace.h"
 
 struct ieee802154_coord_desc *
 cfg802154_alloc_coordinator(struct ieee802154_addr *coord)
@@ -90,6 +91,7 @@ void cfg802154_record_coordinator(struct wpan_phy *wpan_phy,
 		cfg802154_free_coordinator_desc(desc);
 	} else {
 		list_add_tail(&desc->node, &wpan_dev->coord_list);
+		trace_802154_new_coordinator(desc);
 		nl802154_advertise_new_coordinator(wpan_phy, wpan_dev, desc);
 	}
 

@@ -295,6 +295,31 @@ TRACE_EVENT(802154_rdev_set_ackreq_default,
 		WPAN_DEV_PR_ARG, BOOL_TO_STR(__entry->ackreq))
 );
 
+DECLARE_EVENT_CLASS(802154_new_coordinator_evt,
+	TP_PROTO(struct ieee802154_coord_desc *desc),
+	TP_ARGS(desc),
+	TP_STRUCT__entry(
+		__field(__le16, pan_id)
+		__field(__le64, addr)
+		__field(u8, channel)
+		__field(u8, page)
+	),
+	TP_fast_assign(
+		__entry->page = desc->page;
+		__entry->channel = desc->channel;
+		__entry->pan_id = desc->addr->pan_id;
+		__entry->addr = desc->addr->extended_addr;
+	),
+	TP_printk("panid: %u, coord_addr: 0x%llx, page: %u, channel: %u",
+		  __le16_to_cpu(__entry->pan_id), __le64_to_cpu(__entry->addr),
+		  __entry->page, __entry->channel)
+);
+
+DEFINE_EVENT(802154_new_coordinator_evt, 802154_new_coordinator,
+	TP_PROTO(struct ieee802154_coord_desc *desc),
+	TP_ARGS(desc)
+);
+
 TRACE_EVENT(802154_rdev_return_int,
 	TP_PROTO(struct wpan_phy *wpan_phy, int ret),
 	TP_ARGS(wpan_phy, ret),
