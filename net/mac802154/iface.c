@@ -309,6 +309,12 @@ static int mac802154_slave_close(struct net_device *dev)
 		mutex_unlock(&local->scan_lock);
 	}
 
+	if (mac802154_is_beaconing(local)) {
+		mutex_lock(&local->beacon_lock);
+		mac802154_stop_beacons_locked(local);
+		mutex_unlock(&local->beacon_lock);
+	}
+
 	mutex_lock(&local->device_lock);
 
 	netif_stop_queue(dev);
