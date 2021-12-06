@@ -58,8 +58,7 @@ patternProperties:
           Contains the chip-select IDs.
 
       nand-ecc-engine:
-        allOf:
-          - $ref: /schemas/types.yaml#/definitions/phandle
+        $ref: /schemas/types.yaml#/definitions/phandle
         description: |
           A phandle on the hardware ECC engine if any. There are
           basically three possibilities:
@@ -79,25 +78,24 @@ patternProperties:
         description: Do not use any ECC correction.
 
       nand-ecc-placement:
-        allOf:
-          - $ref: /schemas/types.yaml#/definitions/string
-          - enum: [ oob, interleaved ]
+        $ref: /schemas/types.yaml#/definitions/string
         description:
           Location of the ECC bytes. This location is unknown by default
           but can be explicitly set to "oob", if all ECC bytes are
           known to be stored in the OOB area, or "interleaved" if ECC
           bytes will be interleaved with regular data in the main area.
+        enum: [ oob, interleaved ]
 
       nand-ecc-algo:
+        $ref: /schemas/types.yaml#/definitions/string
         description:
           Desired ECC algorithm.
-        $ref: /schemas/types.yaml#/definitions/string
         enum: [hamming, bch, rs]
 
       nand-bus-width:
+        $ref: /schemas/types.yaml#/definitions/uint32
         description:
           Bus width to the NAND chip
-        $ref: /schemas/types.yaml#/definitions/uint32
         enum: [8, 16]
         default: 8
 
@@ -113,15 +111,15 @@ patternProperties:
           build a volatile BBT in RAM.
 
       nand-ecc-strength:
+        $ref: /schemas/types.yaml#/definitions/uint32
         description:
           Maximum number of bits that can be corrected per ECC step.
-        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 1
 
       nand-ecc-step-size:
+        $ref: /schemas/types.yaml#/definitions/uint32
         description:
           Number of data bytes covered by a single ECC step.
-        $ref: /schemas/types.yaml#/definitions/uint32
         minimum: 1
 
       nand-ecc-maximize:
