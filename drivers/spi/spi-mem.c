@@ -162,7 +162,7 @@ static bool spi_mem_check_buswidth(struct spi_mem *mem,
 
 static bool spi_mem_generic_supports_op(struct spi_mem *mem,
 					const struct spi_mem_op *op,
-					bool dtr)
+					bool dtr, bool ecc)
 {
 	if (!dtr) {
 		if (op->cmd.dtr || op->addr.dtr ||
@@ -176,20 +176,25 @@ static bool spi_mem_generic_supports_op(struct spi_mem *mem,
 			return false;
 	}
 
+	if (!ecc) {
+		if (op->ecc_en)
+			return false;
+	}
+
 	return spi_mem_check_buswidth(mem, op);
 }
 
 bool spi_mem_dtr_supports_op(struct spi_mem *mem,
 			     const struct spi_mem_op *op)
 {
-	return spi_mem_generic_supports_op(mem, op, true);
+	return spi_mem_generic_supports_op(mem, op, true, false);
 }
 EXPORT_SYMBOL_GPL(spi_mem_dtr_supports_op);
 
 bool spi_mem_default_supports_op(struct spi_mem *mem,
 				 const struct spi_mem_op *op)
 {
-	return spi_mem_generic_supports_op(mem, op, false);
+	return spi_mem_generic_supports_op(mem, op, false, false);
 }
 EXPORT_SYMBOL_GPL(spi_mem_default_supports_op);
 
