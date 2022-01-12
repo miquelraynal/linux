@@ -60,6 +60,7 @@ struct ieee802154_local {
 	/* Scanning */
 	struct mutex scan_lock;
 	int scan_channel_idx;
+	struct ieee802154_beacon_req_frame scan_beacon_req;
 	struct cfg802154_scan_request __rcu *scan_req;
 	struct delayed_work scan_work;
 	bool was_promiscuous;
