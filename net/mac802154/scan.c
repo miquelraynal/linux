@@ -387,6 +387,7 @@ static void mac802154_end_beaconing(struct ieee802154_local *local)
 		cancel_delayed_work(&local->beacon_work);
 
 	clear_bit(IEEE802154_IS_BEACONING, &local->ongoing);
+	drv_exit_beacons_mode(local);
 	nl802154_end_beaconing(beacon_req->wpan_dev, beacon_req);
 }
 
@@ -407,6 +408,7 @@ int mac802154_send_beacons_locked(struct ieee802154_sub_if_data *sdata,
 {
 	struct ieee802154_local *local = sdata->local;
 	struct wpan_dev *wpan_dev = &sdata->wpan_dev;
+	int ret;
 
 	lockdep_assert_held(&local->beacon_lock);
 
@@ -417,6 +419,13 @@ int mac802154_send_beacons_locked(struct ieee802154_sub_if_data *sdata,
 	rcu_assign_pointer(local->beacon_req, request);
 
 	set_bit(IEEE802154_IS_BEACONING, &local->ongoing);
+
+	/* Notify device drivers about the beacons operation starting */
+	ret = drv_enter_beacons_mode(local, request);
+	if (ret) {
+		clear_bit(IEEE802154_IS_BEACONING, &local->ongoing);
+		return ret;
+	}
 
 	memset(&local->beacon, 0, sizeof(local->beacon));
 	local->beacon.mhr.fc.type = IEEE802154_FC_TYPE_BEACON;
