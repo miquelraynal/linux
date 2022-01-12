@@ -90,6 +90,7 @@ ieee802154_alloc_hw(size_t priv_data_len, const struct ieee802154_ops *ops)
 
 	INIT_LIST_HEAD(&local->interfaces);
 	INIT_LIST_HEAD(&local->rx_beacon_list);
+	INIT_LIST_HEAD(&local->rx_mac_cmd_list);
 	mutex_init(&local->iflist_mtx);
 	mutex_init(&local->device_lock);
 	mutex_init(&local->scan_lock);
@@ -103,6 +104,7 @@ ieee802154_alloc_hw(size_t priv_data_len, const struct ieee802154_ops *ops)
 	INIT_DELAYED_WORK(&local->scan_work, mac802154_scan_worker);
 	INIT_WORK(&local->rx_beacon_work, mac802154_rx_beacon_worker);
 	INIT_DELAYED_WORK(&local->beacon_work, mac802154_beacon_worker);
+	INIT_WORK(&local->rx_mac_cmd_work, mac802154_rx_mac_cmd_worker);
 
 	/* init supported flags with 802.15.4 default ranges */
 	phy->supported.max_minbe = 8;
