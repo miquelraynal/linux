@@ -1423,6 +1423,9 @@ static int nl802154_trigger_scan(struct sk_buff *skb, struct genl_info *info)
 	if (wpan_dev->iftype == NL802154_IFTYPE_MONITOR)
 		return -EPERM;
 
+	if (wpan_phy->flags & WPAN_PHY_FLAG_DATAGRAMS_ONLY)
+		return -EOPNOTSUPP;
+
 	request = kzalloc(sizeof(*request), GFP_KERNEL);
 	if (!request)
 		return -ENOMEM;
@@ -1616,6 +1619,9 @@ nl802154_send_beacons(struct sk_buff *skb, struct genl_info *info)
 		pr_err("Device is not part of any PAN\n");
 		return -EPERM;
 	}
+
+	if (wpan_phy->flags & WPAN_PHY_FLAG_DATAGRAMS_ONLY)
+		return -EOPNOTSUPP;
 
 	request = kzalloc(sizeof(*request), GFP_KERNEL);
 	if (!request)
