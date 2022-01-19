@@ -219,6 +219,8 @@ int ieee802154_register_hw(struct ieee802154_hw *hw)
 
 	if (hw->flags & IEEE802154_HW_PROMISCUOUS)
 		local->phy->supported.iftypes |= BIT(NL802154_IFTYPE_MONITOR);
+	else
+		local->phy->supported.iftypes &= ~BIT(NL802154_IFTYPE_COORD);
 
 	rc = wpan_phy_register(local->phy);
 	if (rc < 0)
