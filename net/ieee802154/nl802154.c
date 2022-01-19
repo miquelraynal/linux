@@ -1626,7 +1626,7 @@ nl802154_send_beacons(struct sk_buff *skb, struct genl_info *info)
 
 	if (info->attrs[NL802154_ATTR_BEACON_INTERVAL]) {
 		request->interval = nla_get_u8(info->attrs[NL802154_ATTR_BEACON_INTERVAL]);
-		if (request->interval > IEEE802154_MAX_SCAN_DURATION) {
+		if (request->interval > IEEE802154_ACTIVE_SCAN_DURATION) {
 			pr_err("Interval is out of range\n");
 			err = -EINVAL;
 			goto free_request;
