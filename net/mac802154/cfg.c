@@ -111,8 +111,7 @@ ieee802154_set_channel(struct wpan_phy *wpan_phy,
 
 	ASSERT_RTNL();
 
-	if (wpan_phy->current_chan.page == chan->page &&
-	    wpan_phy->current_chan.channel == chan->channel)
+	if (ieee802154_same_chans(&wpan_phy->current_chan, chan))
 		return 0;
 
 	/* Refuse to change channels during scanning or beaconing */
