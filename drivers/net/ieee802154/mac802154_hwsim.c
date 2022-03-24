@@ -99,8 +99,7 @@ static int hwsim_hw_channel(struct ieee802154_hw *hw,
 	if (!pib)
 		return -ENOMEM;
 
-	pib->chan.page = chan->page;
-	pib->chan.channel = chan->channel;
+	ieee802154_save_chan(&pib->chan, chan);
 
 	pib_old = rtnl_dereference(phy->pib);
 
