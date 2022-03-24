@@ -342,27 +342,6 @@ nl802154_put_flags(struct sk_buff *msg, int attr, u32 mask)
 }
 
 static int
-nl802154_send_wpan_phy_channels(struct cfg802154_registered_device *rdev,
-				struct sk_buff *msg)
-{
-	struct nlattr *nl_page;
-	unsigned long page;
-
-	nl_page = nla_nest_start_noflag(msg, NL802154_ATTR_CHANNELS_SUPPORTED);
-	if (!nl_page)
-		return -ENOBUFS;
-
-	for (page = 0; page <= IEEE802154_MAX_PAGE; page++) {
-		if (nla_put_u32(msg, NL802154_ATTR_SUPPORTED_CHANNEL,
-				rdev->wpan_phy.supported.channels[page]))
-			return -ENOBUFS;
-	}
-	nla_nest_end(msg, nl_page);
-
-	return 0;
-}
-
-static int
 nl802154_put_capabilities(struct sk_buff *msg,
 			  struct cfg802154_registered_device *rdev)
 {
@@ -479,12 +458,6 @@ static int nl802154_send_wpan_phy(struct cfg802154_registered_device *rdev,
 		       rdev->wpan_phy.current_chan.page) ||
 	    nla_put_u8(msg, NL802154_ATTR_CHANNEL,
 		       rdev->wpan_phy.current_chan.channel))
-		goto nla_put_failure;
-
-	/* TODO remove this behaviour, we still keep support it for a while
-	 * so users can change the behaviour to the new one.
-	 */
-	if (nl802154_send_wpan_phy_channels(rdev, msg))
 		goto nla_put_failure;
 
 	/* cca mode */
