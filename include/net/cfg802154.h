@@ -155,6 +155,13 @@ struct ieee802154_channel {
 	u8 channel;
 };
 
+static inline bool ieee802154_same_chans(struct ieee802154_channel *a,
+					 struct ieee802154_channel *b)
+{
+	return a->page == b->page &&
+	       a->channel == b->channel;
+}
+
 struct wpan_phy_supported {
 	u32 channels[IEEE802154_MAX_PAGE + 1],
 	    cca_modes, cca_opts, iftypes;

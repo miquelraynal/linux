@@ -275,8 +275,7 @@ static int hwsim_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 			continue;
 
 		endpoint_pib = rcu_dereference(e->endpoint->pib);
-		if (current_pib->chan.page == endpoint_pib->chan.page &&
-		    current_pib->chan.channel == endpoint_pib->chan.channel) {
+		if (ieee802154_same_chans(&current_pib->chan, &endpoint_pib->chan)) {
 			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
 
 			einfo = rcu_dereference(e->info);

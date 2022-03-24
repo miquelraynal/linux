@@ -68,8 +68,7 @@ static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 		if (current_phy == phy)
 			continue;
 
-		if (current_phy->chan.page == phy->chan.page &&
-		    current_phy->chan.channel == phy->chan.channel) {
+		if (ieee802154_same_chans(&current_phy->chan, &phy->chan)) {
 			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
 
 			if (newskb)
