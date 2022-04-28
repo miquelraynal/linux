@@ -61,6 +61,9 @@ struct ieee802154_local {
 	/* Scanning */
 	struct mutex scan_lock;
 	int scan_channel_idx;
+	int scan_preamble_code_idx;
+	u64 scan_preamble_codes;
+	u8 scan_mean_prf;
 	struct ieee802154_beacon_req_frame scan_beacon_req;
 	struct cfg802154_scan_request __rcu *scan_req;
 	struct delayed_work scan_work;

@@ -143,9 +143,21 @@ static unsigned int
 mac802154_scan_get_next_channel(struct ieee802154_local *local,
 				struct cfg802154_scan_request *scan_req)
 {
+	local->scan_preamble_code_idx = 0;
+	local->scan_preamble_codes = 0;
+
 	return find_next_bit((const unsigned long *)&scan_req->channels,
 			     IEEE802154_MAX_CHANNEL + 1,
 			     local->scan_channel_idx + 1);
+}
+
+static unsigned int
+mac802154_scan_get_next_code(struct ieee802154_local *local,
+			     struct cfg802154_scan_request *scan_req)
+{
+	return find_next_bit((const unsigned long *)&local->scan_preamble_codes,
+			     IEEE802154_MAX_PREAMBLE_CODE + 1,
+			     local->scan_preamble_code_idx + 1);
 }
 
 static void mac802154_scan_find_next_chan(struct ieee802154_local *local,
@@ -153,7 +165,61 @@ static void mac802154_scan_find_next_chan(struct ieee802154_local *local,
 					  struct ieee802154_channel *c)
 {
 	c->page = scan_req->page;
-	c->channel = mac802154_scan_get_next_channel(local, scan_req);
+	if (!ieee802154_is_uwb_chan(c)) {
+		c->channel = mac802154_scan_get_next_channel(local, scan_req);
+		return;
+	}
+
+	/* Find a starting channel */
+	if (local->scan_channel_idx < 0)
+		local->scan_channel_idx =
+			mac802154_scan_get_next_channel(local, scan_req);
+
+	/* UWB pages have complex channels, we must go through each of them */
+	while (local->scan_channel_idx <= IEEE802154_MAX_CHANNEL &&
+	       local->scan_preamble_code_idx <= IEEE802154_MAX_PREAMBLE_CODE) {
+
+		/* Compute the list of codes to scan if not provided */
+		if (!local->scan_preamble_codes)
+			local->scan_preamble_codes =
+				scan_req->preamble_codes;
+		if (!local->scan_preamble_codes)
+			local->scan_preamble_codes =
+				ieee802154_uwb_supported_codes(local->phy,
+							       local->scan_channel_idx);
+
+		/* If there are no supported preamble codes, try the next channel */
+		if (!local->scan_preamble_codes) {
+			local->scan_channel_idx =
+				mac802154_scan_get_next_channel(local, scan_req);
+			continue;
+		}
+
+		/* Look for the next preamble code on this channel */
+		local->scan_preamble_code_idx =
+			mac802154_scan_get_next_code(local, scan_req);
+
+		/* We reached the end of the preamble code list, try the next channel */
+		if (local->scan_preamble_code_idx > IEEE802154_MAX_PREAMBLE_CODE) {
+			local->scan_channel_idx =
+				mac802154_scan_get_next_channel(local, scan_req);
+			continue;
+		}
+
+		break;
+	}
+
+	/* Get a default PRF if not provided */
+	if (!local->scan_mean_prf) {
+		int pcode = local->scan_preamble_code_idx;
+		u8 prfs = ieee802154_uwb_supported_prfs(local->phy, pcode);
+
+		local->scan_mean_prf = BIT(ffs(prfs) - 1);
+	}
+
+	c->channel = local->scan_channel_idx;
+	c->preamble_code = local->scan_preamble_code_idx;
+	c->mean_prf = local->scan_mean_prf;
 }
 
 void mac802154_scan_worker(struct work_struct *work)
@@ -217,7 +283,8 @@ queue_work:
 							local->phy->symbol_duration);
 	dev_dbg(&sdata->dev->dev,
 		"Scan channel %u of page %u (code %u) for %ums\n",
-		c.channel, c.page, c.preamble_code, jiffies_to_msecs(scan_duration));
+		c.channel, scan_req->page, c.preamble_code,
+		jiffies_to_msecs(scan_duration));
 	queue_delayed_work(local->mac_wq, &local->scan_work, scan_duration);
 
 unlock_mutex:
@@ -270,6 +337,9 @@ int mac802154_trigger_scan_locked(struct ieee802154_sub_if_data *sdata,
 	}
 
 	local->scan_channel_idx = -1;
+	local->scan_preamble_code_idx = 0;
+	local->scan_preamble_codes = local->scan_req->preamble_codes;
+	local->scan_mean_prf = local->scan_req->mean_prf;
 	set_bit(IEEE802154_IS_SCANNING, &local->ongoing);
 	if (request->type == NL802154_SCAN_ACTIVE)
 		mac802154_scan_prepare_beacon_req(local);
@@ -302,8 +372,9 @@ int mac802154_process_beacon(struct ieee802154_local *local,
 		return -EINVAL;
 
 	dev_dbg(&skb->dev->dev,
-		"BEACON received on channel %d of page %d\n",
-		local->scan_channel_idx, scan_req->page);
+		"BEACON received on channel %d of page %d (code %d)\n",
+		local->scan_channel_idx, scan_req->page,
+		local->scan_preamble_code_idx);
 
 	/* Parse beacon, create PAN information and forward to upper layers */
 	desc = cfg802154_alloc_coordinator(src);
@@ -312,6 +383,8 @@ int mac802154_process_beacon(struct ieee802154_local *local,
 
 	desc->chan.page = scan_req->page;
 	desc->chan.channel = local->scan_channel_idx;
+	desc->chan.preamble_code = local->scan_preamble_code_idx;
+	desc->chan.mean_prf = scan_req->mean_prf;
 	desc->link_quality = mac_cb(skb)->lqi;
 	desc->superframe_spec = get_unaligned_le16(skb->data);
 	desc->gts_permit = bh->gts_permit;
