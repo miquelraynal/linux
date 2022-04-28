@@ -156,6 +156,7 @@ enum nl802154_attrs {
 
 	NL802154_ATTR_PREAMBLE_CODE,
 	NL802154_ATTR_MEAN_PRF,
+	NL802154_ATTR_SCAN_PREAMBLE_CODES,
 
 	/* add attributes here, update the policy in nl802154.c */
 

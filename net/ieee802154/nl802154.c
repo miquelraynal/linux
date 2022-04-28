@@ -230,6 +230,7 @@ static const struct nla_policy nl802154_policy[NL802154_ATTR_MAX+1] = {
 
 	[NL802154_ATTR_PREAMBLE_CODE] = { .type = NLA_U8 },
 	[NL802154_ATTR_MEAN_PRF] = { .type = NLA_U8 },
+	[NL802154_ATTR_SCAN_PREAMBLE_CODES] = { .type = NLA_U64 },
 
 #ifdef CONFIG_IEEE802154_NL802154_EXPERIMENTAL
 	[NL802154_ATTR_SEC_ENABLED] = { .type = NLA_U8, },
@@ -1512,6 +1513,35 @@ static int nl802154_trigger_scan(struct sk_buff *skb, struct genl_info *info)
 	} else {
 		/* Scan all supported channels by default */
 		request->channels = wpan_phy->supported.channels[request->page];
+	}
+
+	if (info->attrs[NL802154_ATTR_SCAN_PREAMBLE_CODES]) {
+		request->preamble_codes = nla_get_u32(info->attrs[NL802154_ATTR_SCAN_PREAMBLE_CODES]);
+		if (request->preamble_codes >= BIT(IEEE802154_MAX_PREAMBLE_CODE + 1)) {
+			pr_err("Invalid preamble code bitfield %llx ≥ %lx\n",
+			       request->preamble_codes,
+			       BIT(IEEE802154_MAX_PREAMBLE_CODE + 1));
+			err = -EINVAL;
+			goto free_request;
+		}
+	} else {
+		/* Scan all supported preamble codes by default */
+		request->preamble_codes = 0;
+	}
+
+	if (info->attrs[NL802154_ATTR_MEAN_PRF]) {
+		request->mean_prf = nla_get_u32(info->attrs[NL802154_ATTR_MEAN_PRF]);
+		if (request->mean_prf > NL802154_MEAN_PRF_111090KHZ) {
+			pr_err("Invalid mean prf %x\n", request->mean_prf);
+			err = -EINVAL;
+			goto free_request;
+		}
+	} else {
+		/*
+		 * This will fallback to the current setting or as a last
+		 * ressort a mandatory value.
+		 */
+		request->mean_prf = 0;
 	}
 
 	if (info->attrs[NL802154_ATTR_SCAN_DURATION]) {
