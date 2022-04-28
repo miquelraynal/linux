@@ -151,6 +151,29 @@ void ieee802154_configure_durations(struct wpan_phy *phy,
 			/* 2.4 GHz CSS 802.15.4a-2007: 1/6 Msym/s */
 			duration = 6 * NSEC_PER_USEC;
 		break;
+	case 4:
+		/* UWB 802.15.4a-2007: 3974.4, 993.6, 1017.6 or 729.17 ns */
+		if (!(BIT(chan->channel) & 0xFFFF))
+			break;
+
+		switch (chan->mean_prf) {
+		case NL802154_MEAN_PRF_4030KHZ:
+			duration = 3974;
+			break;
+		case NL802154_MEAN_PRF_16100KHZ:
+			duration = 994;
+			break;
+		case NL802154_MEAN_PRF_62890KHZ:
+			duration = 1018;
+			break;
+		case NL802154_MEAN_PRF_111090KHZ:
+			duration = 729;
+			break;
+		default:
+			break;
+		}
+
+		break;
 	default:
 		break;
 	}
