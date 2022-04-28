@@ -157,6 +157,10 @@ static int fakelb_add_one(struct device *dev)
 	hw->phy->supported.channels[4] |= 0x1e;
 	/* UWB High band 802.15.4a-2007 */
 	hw->phy->supported.channels[4] |= 0xffe0;
+	/* UWB flags: all preamble code of length 31 and 127 are supported */
+	hw->phy->supported.prfs = NL802154_MEAN_PRF_4030KHZ |
+				  NL802154_MEAN_PRF_16100KHZ |
+				  NL802154_MEAN_PRF_62890KHZ;
 	/* 750 MHz O-QPSK 802.15.4c-2009 */
 	hw->phy->supported.channels[5] |= 0xf;
 	/* 750 MHz MPSK 802.15.4c-2009 */
