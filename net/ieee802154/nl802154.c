@@ -976,9 +976,7 @@ static int nl802154_set_channel(struct sk_buff *skb, struct genl_info *info)
 	chan.channel = nla_get_u8(info->attrs[NL802154_ATTR_CHANNEL]);
 
 	/* check 802.15.4 constraints */
-	if (chan.page > IEEE802154_MAX_PAGE ||
-	    chan.channel > IEEE802154_MAX_CHANNEL ||
-	    !(rdev->wpan_phy.supported.channels[chan.page] & BIT(chan.channel)))
+	if (!ieee802154_chan_is_valid(wpan_phy, &chan))
 		return -EINVAL;
 
 	return rdev_set_channel(rdev, &chan);
