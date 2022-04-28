@@ -316,6 +316,105 @@ static inline u8 ieee802154_uwb_default_prfs(int preamble_code)
 	return 0;
 }
 
+static inline bool ieee802154_uwb_chan_is_valid(struct wpan_phy *phy,
+						struct ieee802154_channel *chan)
+{
+	if (!chan->preamble_code || !chan->mean_prf)
+		return false;
+
+	/* Only preamble code [1; 32] are valid */
+	if (chan->preamble_code > IEEE802154_MAX_PREAMBLE_CODE)
+		return false;
+
+	if (chan->mean_prf != NL802154_MEAN_PRF_4030KHZ &&
+	    chan->mean_prf != NL802154_MEAN_PRF_16100KHZ &&
+	    chan->mean_prf != NL802154_MEAN_PRF_62890KHZ &&
+	    chan->mean_prf != NL802154_MEAN_PRF_111090KHZ)
+		return false;
+
+	/* Preamble code [1; 8] are mandatory and rely on a 4/16MHz mean PRF */
+	if (chan->preamble_code <= 8 &&
+	    chan->mean_prf != NL802154_MEAN_PRF_4030KHZ &&
+	    chan->mean_prf != NL802154_MEAN_PRF_16100KHZ)
+		return false;
+
+	/* Preamble code [9; 24] are optional and rely on a 62MHz mean PRF */
+	if (chan->preamble_code >= 9 && chan->preamble_code <= 24 &&
+	    (!(phy->supported.prfs & NL802154_MEAN_PRF_62890KHZ) ||
+	     chan->mean_prf != NL802154_MEAN_PRF_62890KHZ))
+		return false;
+
+	/* Preamble code [25; 32] are optional and rely on a 111MHz mean PRF */
+	if (chan->preamble_code >= 25 && chan->preamble_code <= 32 &&
+	    (!(phy->supported.prfs & NL802154_MEAN_PRF_111090KHZ) ||
+	     chan->mean_prf != NL802154_MEAN_PRF_111090KHZ))
+		return false;
+
+	/* Preamble codes [13; 16] and [21; 24] are only valid with DPS.
+	 * But Preamble code 13 is also valid on chans 4, 7, 11 and 15.
+	 */
+	if ((chan->preamble_code >= 13 && chan->preamble_code <= 16) ||
+	    (chan->preamble_code >= 21 && chan->preamble_code <= 24)) {
+		if (chan->preamble_code == 13 &&
+		    (chan->channel == 4 || chan->channel == 7 ||
+		     chan->channel == 11 || chan->channel == 15))
+			return true;
+
+		return phy->supported.dps;
+	}
+
+	/* Channels 4, 7, 11, 15 support codes [1; 13] and [17; 20] */
+	switch (chan->channel) {
+	case 4:
+	case 7:
+	case 11:
+	case 15:
+		if ((chan->preamble_code >= 1 && chan->preamble_code <= 13) ||
+		    (chan->preamble_code >= 17 && chan->preamble_code <= 20))
+			return true;
+		else
+			return false;
+	default:
+		break;
+	}
+
+	/* All remaining channels support codes [9; 12] */
+	if (chan->preamble_code >= 9 && chan->preamble_code <= 12)
+		return true;
+
+	/* Additionally, each of these remaining channels support 2 codes */
+	switch (chan->channel) {
+	case 0:
+	case 1:
+	case 8:
+	case 12:
+		if (chan->preamble_code == 1 || chan->preamble_code == 2)
+			return true;
+		else
+			return false;
+	case 2:
+	case 5:
+	case 9:
+	case 13:
+		if (chan->preamble_code == 3 || chan->preamble_code == 4)
+			return true;
+		else
+			return false;
+	case 3:
+	case 6:
+	case 10:
+	case 14:
+		if (chan->preamble_code == 5 || chan->preamble_code == 6)
+			return true;
+		else
+			return false;
+	default:
+		break;
+	}
+
+	return false;
+}
+
 static inline bool ieee802154_is_uwb_chan(struct ieee802154_channel *chan)
 {
 	return chan->page == 4;
@@ -328,6 +427,9 @@ static inline bool ieee802154_chan_is_valid(struct wpan_phy *phy,
 	    chan->channel > IEEE802154_MAX_CHANNEL ||
 	    !(phy->supported.channels[chan->page] & BIT(chan->channel)))
 		return false;
+
+	if (ieee802154_is_uwb_chan(chan))
+		return ieee802154_uwb_chan_is_valid(phy, chan);
 
 	return true;
 }
