@@ -83,14 +83,19 @@ TRACE_EVENT(802154_drv_set_channel,
 		LOCAL_ENTRY
 		__field(u8, page)
 		__field(u8, channel)
+		__field(u8, preamble_code)
+		__field(u8, mean_prf)
 	),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
 		__entry->page = chan->page;
 		__entry->channel = chan->channel;
+		__entry->preamble_code = chan->preamble_code;
+		__entry->mean_prf = chan->mean_prf;
 	),
-	TP_printk(LOCAL_PR_FMT ", page: %d, channel: %d", LOCAL_PR_ARG,
-		  __entry->page, __entry->channel)
+	TP_printk(LOCAL_PR_FMT ", page: %d, channel: %d, preamble code %d, mean prf: 0x%x",
+		  LOCAL_PR_ARG,
+		  __entry->page, __entry->channel, __entry->preamble_code, __entry->mean_prf)
 );
 
 TRACE_EVENT(802154_drv_set_cca_mode,
