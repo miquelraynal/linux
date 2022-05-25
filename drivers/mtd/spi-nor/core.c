@@ -589,6 +589,66 @@ int spi_nor_sr_ready(struct spi_nor *nor)
 }
 
 /**
+ * spi_nor_parallel_locking() - Checks if the RWW locking scheme shall be used
+ * @nor:	pointer to 'struct spi_nor'.
+ *
+ * Return: true if parallel locking is enabled, false otherwise.
+ */
+static bool spi_nor_parallel_locking(struct spi_nor *nor)
+{
+	if (nor->controller_ops &&
+	    (nor->controller_ops->prepare || nor->controller_ops->unprepare))
+		return false;
+
+	return nor->info->n_banks > 1 && nor->info->no_sfdp_flags & SPI_NOR_RWW;
+}
+
+/* Locking helpers for status read operations */
+static int spi_nor_rww_start_rdst(struct spi_nor *nor)
+{
+	int ret = -EAGAIN;
+
+	mutex_lock(&nor->lock);
+
+	if (nor->rww.ongoing_io || nor->rww.ongoing_rd)
+		goto busy;
+
+	nor->rww.ongoing_io = true;
+	nor->rww.ongoing_rd = true;
+	ret = 0;
+
+busy:
+	mutex_unlock(&nor->lock);
+	return ret;
+}
+
+static void spi_nor_rww_end_rdst(struct spi_nor *nor)
+{
+	mutex_lock(&nor->lock);
+
+	nor->rww.ongoing_io = false;
+	nor->rww.ongoing_rd = false;
+
+	mutex_unlock(&nor->lock);
+}
+
+static int spi_nor_lock_rdst(struct spi_nor *nor)
+{
+	if (spi_nor_parallel_locking(nor))
+		return spi_nor_rww_start_rdst(nor);
+
+	return 0;
+}
+
+static void spi_nor_unlock_rdst(struct spi_nor *nor)
+{
+	if (spi_nor_parallel_locking(nor)) {
+		spi_nor_rww_end_rdst(nor);
+		wake_up(&nor->rww.wait);
+	}
+}
+
+/**
  * spi_nor_ready() - Query the flash to see if it is ready for new commands.
  * @nor:	pointer to 'struct spi_nor'.
  *
@@ -596,11 +656,21 @@ int spi_nor_sr_ready(struct spi_nor *nor)
  */
 static int spi_nor_ready(struct spi_nor *nor)
 {
+	int ret;
+
+	ret = spi_nor_lock_rdst(nor);
+	if (ret)
+		return 0;
+
 	/* Flashes might override the standard routine. */
 	if (nor->params->ready)
-		return nor->params->ready(nor);
+		ret = nor->params->ready(nor);
+	else
+		ret = spi_nor_sr_ready(nor);
 
-	return spi_nor_sr_ready(nor);
+	spi_nor_unlock_rdst(nor);
+
+	return ret;
 }
 
 /**
@@ -1086,7 +1156,81 @@ static void spi_nor_unprep(struct spi_nor *nor)
 		nor->controller_ops->unprepare(nor);
 }
 
+static void spi_nor_offset_to_banks(struct spi_nor *nor, loff_t start, size_t len,
+				    unsigned int *first, unsigned int *last)
+{
+	*first = DIV_ROUND_DOWN_ULL(start, nor->params->bank_size);
+	*last = DIV_ROUND_DOWN_ULL(start + len - 1, nor->params->bank_size);
+}
+
 /* Generic helpers for internal locking and serialization */
+static bool spi_nor_rww_start_io(struct spi_nor *nor)
+{
+	bool start = false;
+
+	mutex_lock(&nor->lock);
+
+	if (nor->rww.ongoing_io)
+		goto busy;
+
+	nor->rww.ongoing_io = true;
+	start = true;
+
+busy:
+	mutex_unlock(&nor->lock);
+	return start;
+}
+
+static void spi_nor_rww_end_io(struct spi_nor *nor)
+{
+	mutex_lock(&nor->lock);
+	nor->rww.ongoing_io = false;
+	mutex_unlock(&nor->lock);
+}
+
+static int spi_nor_lock_device(struct spi_nor *nor)
+{
+	if (!spi_nor_parallel_locking(nor))
+		return 0;
+
+	return wait_event_killable(nor->rww.wait, spi_nor_rww_start_io(nor));
+}
+
+static void spi_nor_unlock_device(struct spi_nor *nor)
+{
+	if (spi_nor_parallel_locking(nor))
+		spi_nor_rww_end_io(nor);
+}
+
+/* Generic helpers for internal locking and serialization */
+static bool spi_nor_rww_start_exclusive(struct spi_nor *nor)
+{
+	bool start = false;
+
+	mutex_lock(&nor->lock);
+
+	if (nor->rww.ongoing_io || nor->rww.ongoing_rd || nor->rww.ongoing_pe)
+		goto busy;
+
+	nor->rww.ongoing_io = true;
+	nor->rww.ongoing_rd = true;
+	nor->rww.ongoing_pe = true;
+	start = true;
+
+busy:
+	mutex_unlock(&nor->lock);
+	return start;
+}
+
+static void spi_nor_rww_end_exclusive(struct spi_nor *nor)
+{
+	mutex_lock(&nor->lock);
+	nor->rww.ongoing_io = false;
+	nor->rww.ongoing_rd = false;
+	nor->rww.ongoing_pe = false;
+	mutex_unlock(&nor->lock);
+}
+
 int spi_nor_lock_and_prep(struct spi_nor *nor)
 {
 	int ret;
@@ -1095,19 +1239,71 @@ int spi_nor_lock_and_prep(struct spi_nor *nor)
 	if (ret)
 		return ret;
 
-	mutex_lock(&nor->lock);
+	if (!spi_nor_parallel_locking(nor))
+		mutex_lock(&nor->lock);
+	else
+		ret = wait_event_killable(nor->rww.wait,
+					  spi_nor_rww_start_exclusive(nor));
 
-	return 0;
+	return ret;
 }
 
 void spi_nor_unlock_and_unprep(struct spi_nor *nor)
 {
-	mutex_unlock(&nor->lock);
+	if (!spi_nor_parallel_locking(nor)) {
+		mutex_unlock(&nor->lock);
+	} else {
+		spi_nor_rww_end_exclusive(nor);
+		wake_up(&nor->rww.wait);
+	}
 
 	spi_nor_unprep(nor);
 }
 
 /* Internal locking helpers for program and erase operations */
+static bool spi_nor_rww_start_pe(struct spi_nor *nor, loff_t start, size_t len)
+{
+	unsigned int first, last;
+	bool started = false;
+	int bank;
+
+	mutex_lock(&nor->lock);
+
+	if (nor->rww.ongoing_io || nor->rww.ongoing_rd || nor->rww.ongoing_pe)
+		goto busy;
+
+	spi_nor_offset_to_banks(nor, start, len, &first, &last);
+	for (bank = first; bank <= last; bank++)
+		if (nor->rww.used_banks & BIT(bank))
+			goto busy;
+
+	for (bank = first; bank <= last; bank++)
+		nor->rww.used_banks |= BIT(bank);
+
+	nor->rww.ongoing_pe = true;
+	started = true;
+
+busy:
+	mutex_unlock(&nor->lock);
+	return started;
+}
+
+static void spi_nor_rww_end_pe(struct spi_nor *nor, loff_t start, size_t len)
+{
+	unsigned int first, last;
+	int bank;
+
+	mutex_lock(&nor->lock);
+
+	spi_nor_offset_to_banks(nor, start, len, &first, &last);
+	for (bank = first; bank <= last; bank++)
+		nor->rww.used_banks &= ~BIT(bank);
+
+	nor->rww.ongoing_pe = false;
+
+	mutex_unlock(&nor->lock);
+}
+
 static int spi_nor_lock_and_prep_pe(struct spi_nor *nor, loff_t start, size_t len)
 {
 	int ret;
@@ -1116,19 +1312,73 @@ static int spi_nor_lock_and_prep_pe(struct spi_nor *nor, loff_t start, size_t le
 	if (ret)
 		return ret;
 
-	mutex_lock(&nor->lock);
+	if (!spi_nor_parallel_locking(nor))
+		mutex_lock(&nor->lock);
+	else
+		ret = wait_event_killable(nor->rww.wait,
+					  spi_nor_rww_start_pe(nor, start, len));
 
-	return 0;
+	return ret;
 }
 
 static void spi_nor_unlock_and_unprep_pe(struct spi_nor *nor, loff_t start, size_t len)
 {
-	mutex_unlock(&nor->lock);
+	if (!spi_nor_parallel_locking(nor)) {
+		mutex_unlock(&nor->lock);
+	} else {
+		spi_nor_rww_end_pe(nor, start, len);
+		wake_up(&nor->rww.wait);
+	}
 
 	spi_nor_unprep(nor);
 }
 
 /* Internal locking helpers for read operations */
+static bool spi_nor_rww_start_rd(struct spi_nor *nor, loff_t start, size_t len)
+{
+	unsigned int first, last;
+	bool started = false;
+	int bank;
+
+	mutex_lock(&nor->lock);
+
+	if (nor->rww.ongoing_io || nor->rww.ongoing_rd)
+		goto busy;
+
+	spi_nor_offset_to_banks(nor, start, len, &first, &last);
+	for (bank = first; bank <= last; bank++)
+		if (nor->rww.used_banks & BIT(bank))
+			goto busy;
+
+	for (bank = first; bank <= last; bank++)
+		nor->rww.used_banks |= BIT(bank);
+
+	nor->rww.ongoing_io = true;
+	nor->rww.ongoing_rd = true;
+	started = true;
+
+busy:
+	mutex_unlock(&nor->lock);
+	return started;
+}
+
+static void spi_nor_rww_end_rd(struct spi_nor *nor, loff_t start, size_t len)
+{
+	unsigned int first, last;
+	int bank;
+
+	mutex_lock(&nor->lock);
+
+	spi_nor_offset_to_banks(nor, start, len, &first, &last);
+	for (bank = first; bank <= last; bank++)
+		nor->rww.used_banks &= ~BIT(bank);
+
+	nor->rww.ongoing_io = false;
+	nor->rww.ongoing_rd = false;
+
+	mutex_unlock(&nor->lock);
+}
+
 static int spi_nor_lock_and_prep_rd(struct spi_nor *nor, loff_t start, size_t len)
 {
 	int ret;
@@ -1137,14 +1387,23 @@ static int spi_nor_lock_and_prep_rd(struct spi_nor *nor, loff_t start, size_t le
 	if (ret)
 		return ret;
 
-	mutex_lock(&nor->lock);
+	if (!spi_nor_parallel_locking(nor))
+		mutex_lock(&nor->lock);
+	else
+		ret = wait_event_killable(nor->rww.wait,
+					  spi_nor_rww_start_rd(nor, start, len));
 
-	return 0;
+	return ret;
 }
 
 static void spi_nor_unlock_and_unprep_rd(struct spi_nor *nor, loff_t start, size_t len)
 {
-	mutex_unlock(&nor->lock);
+	if (!spi_nor_parallel_locking(nor)) {
+		mutex_unlock(&nor->lock);
+	} else {
+		spi_nor_rww_end_rd(nor, start, len);
+		wake_up(&nor->rww.wait);
+	}
 
 	spi_nor_unprep(nor);
 }
@@ -1451,11 +1710,18 @@ static int spi_nor_erase_multi_sectors(struct spi_nor *nor, u64 addr, u32 len)
 			dev_vdbg(nor->dev, "erase_cmd->size = 0x%08x, erase_cmd->opcode = 0x%02x, erase_cmd->count = %u\n",
 				 cmd->size, cmd->opcode, cmd->count);
 
-			ret = spi_nor_write_enable(nor);
+			ret = spi_nor_lock_device(nor);
 			if (ret)
 				goto destroy_erase_cmd_list;
 
+			ret = spi_nor_write_enable(nor);
+			if (ret) {
+				spi_nor_unlock_device(nor);
+				goto destroy_erase_cmd_list;
+			}
+
 			ret = spi_nor_erase_sector(nor, addr);
+			spi_nor_unlock_device(nor);
 			if (ret)
 				goto destroy_erase_cmd_list;
 
@@ -1508,11 +1774,18 @@ static int spi_nor_erase(struct mtd_info *mtd, struct erase_info *instr)
 	if (len == mtd->size && !(nor->flags & SNOR_F_NO_OP_CHIP_ERASE)) {
 		unsigned long timeout;
 
-		ret = spi_nor_write_enable(nor);
+		ret = spi_nor_lock_device(nor);
 		if (ret)
 			goto erase_err;
 
+		ret = spi_nor_write_enable(nor);
+		if (ret) {
+			spi_nor_unlock_device(nor);
+			goto erase_err;
+		}
+
 		ret = spi_nor_erase_chip(nor);
+		spi_nor_unlock_device(nor);
 		if (ret)
 			goto erase_err;
 
@@ -1537,11 +1810,18 @@ static int spi_nor_erase(struct mtd_info *mtd, struct erase_info *instr)
 	/* "sector"-at-a-time erase */
 	} else if (spi_nor_has_uniform_erase(nor)) {
 		while (len) {
-			ret = spi_nor_write_enable(nor);
+			ret = spi_nor_lock_device(nor);
 			if (ret)
 				goto erase_err;
 
+			ret = spi_nor_write_enable(nor);
+			if (ret) {
+				spi_nor_unlock_device(nor);
+				goto erase_err;
+			}
+
 			ret = spi_nor_erase_sector(nor, addr);
+			spi_nor_unlock_device(nor);
 			if (ret)
 				goto erase_err;
 
@@ -1811,11 +2091,18 @@ static int spi_nor_write(struct mtd_info *mtd, loff_t to, size_t len,
 
 		addr = spi_nor_convert_addr(nor, addr);
 
-		ret = spi_nor_write_enable(nor);
+		ret = spi_nor_lock_device(nor);
 		if (ret)
 			goto write_err;
 
+		ret = spi_nor_write_enable(nor);
+		if (ret) {
+			spi_nor_unlock_device(nor);
+			goto write_err;
+		}
+
 		ret = spi_nor_write_data(nor, addr, page_remain, buf + i);
+		spi_nor_unlock_device(nor);
 		if (ret < 0)
 			goto write_err;
 		written = ret;
@@ -3033,6 +3320,8 @@ int spi_nor_scan(struct spi_nor *nor, const char *name,
 	nor->info = info;
 
 	mutex_init(&nor->lock);
+	if (spi_nor_parallel_locking(nor))
+		init_waitqueue_head(&nor->rww.wait);
 
 	/* Init flash parameters based on flash_info struct and SFDP */
 	ret = spi_nor_init_params(nor);
