@@ -152,13 +152,17 @@ wpan_phy_supported_bool(bool b, enum nl802154_supported_bool_states st)
 struct ieee802154_channel {
 	u8 page;
 	u8 channel;
+	u8 preamble_code;
+	enum nl802154_mean_prfs mean_prf;
 };
 
 static inline bool ieee802154_same_chans(struct ieee802154_channel *a,
 					 struct ieee802154_channel *b)
 {
 	return a->page == b->page &&
-	       a->channel == b->channel;
+	       a->channel == b->channel &&
+	       a->preamble_code == b->preamble_code &&
+	       a->mean_prf == b->mean_prf;
 }
 
 static inline void ieee802154_save_chan(struct ieee802154_channel *dst,
@@ -166,6 +170,8 @@ static inline void ieee802154_save_chan(struct ieee802154_channel *dst,
 {
 	dst->page = src->page;
 	dst->channel = src->channel;
+	dst->preamble_code = src->preamble_code;
+	dst->mean_prf = src->mean_prf;
 }
 
 struct wpan_phy_supported {
@@ -173,10 +179,11 @@ struct wpan_phy_supported {
 	    cca_modes, cca_opts, iftypes;
 	enum nl802154_supported_bool_states lbt;
 	u8 min_minbe, max_minbe, min_maxbe, max_maxbe,
-	   min_csma_backoffs, max_csma_backoffs;
+	   min_csma_backoffs, max_csma_backoffs, prfs;
 	s8 min_frame_retries, max_frame_retries;
 	size_t tx_powers_size, cca_ed_levels_size;
 	const s32 *tx_powers, *cca_ed_levels;
+	bool dps;
 };
 
 struct wpan_phy_cca {
@@ -280,6 +287,65 @@ static inline void wpan_phy_net_set(struct wpan_phy *wpan_phy, struct net *net)
 	write_pnet(&wpan_phy->_net, net);
 }
 
+static inline u64 ieee802154_uwb_supported_codes(struct wpan_phy *phy, int channel)
+{
+	u64 supported = 0;
+
+	if (phy->supported.prfs & NL802154_MEAN_PRF_4030KHZ ||
+	    phy->supported.prfs	& NL802154_MEAN_PRF_16100KHZ) {
+		if (channel == 0 || channel == 1 || channel == 8 || channel == 12)
+			supported |= GENMASK(2, 1);
+
+		if (channel == 2 || channel == 5 || channel == 9 || channel == 13)
+			supported |= GENMASK(4, 3);
+
+		if (channel == 3 || channel == 6 || channel == 10 || channel == 14)
+			supported |= GENMASK(6, 5);
+
+		if (channel == 4 || channel == 7 || channel == 11 || channel == 15)
+			supported |= GENMASK(8, 1);
+	}
+
+	if (phy->supported.prfs & NL802154_MEAN_PRF_62890KHZ) {
+		if ((channel >= 0 && channel <= 3) ||
+		    (channel == 5 || channel == 6) ||
+		    (channel >= 8 && channel <= 10) ||
+		    (channel >= 12 && channel <= 14))
+			supported |= GENMASK(12, 9);
+
+		if (channel >= 0 && channel <= 15 && phy->supported.dps)
+			supported |= GENMASK(16, 13) | GENMASK(24, 21);
+
+		if (channel == 4 || channel == 7 || channel == 11 || channel == 15)
+			supported |= GENMASK(13, 9) | GENMASK(20, 17);
+	}
+
+	if (phy->supported.prfs & NL802154_MEAN_PRF_111090KHZ)
+		supported |= GENMASK(32, 25);
+
+	return supported;
+}
+
+static inline u8 ieee802154_uwb_supported_prfs(struct wpan_phy *phy, int preamble_code)
+{
+	if (preamble_code >= 1 && preamble_code <= 8)
+		return NL802154_MEAN_PRF_4030KHZ |
+		       NL802154_MEAN_PRF_16100KHZ;
+
+	if (preamble_code >= 9 && preamble_code <= 24)
+		return NL802154_MEAN_PRF_62890KHZ;
+
+	if (preamble_code >= 25 && preamble_code <= 32)
+		return NL802154_MEAN_PRF_111090KHZ;
+
+	return 0;
+}
+
+static inline bool ieee802154_is_uwb_chan(struct ieee802154_channel *chan)
+{
+	return chan->page == 4;
+}
+
 static inline bool ieee802154_chan_is_valid(struct wpan_phy *phy,
 					    struct ieee802154_channel *chan)
 {
@@ -350,6 +416,8 @@ struct ieee802154_pan_device {
  * @type: type of scan to be performed
  * @page: page on which to perform the scan
  * @channels: channels in te %page to be scanned
+ * @preamble_codes: complex channels for UWB PHYs
+ * @mean_prf: mean PRF for UWB PHYs
  * @duration: time spent on each channel, calculated with:
  *            aBaseSuperframeDuration * (2 ^ duration + 1)
  * @wpan_dev: the wpan device on which to perform the scan

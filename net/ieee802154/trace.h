@@ -106,14 +106,19 @@ TRACE_EVENT(802154_rdev_set_channel,
 		WPAN_PHY_ENTRY
 		__field(u8, page)
 		__field(u8, channel)
+		__field(u8, preamble_code)
+		__field(u8, mean_prf)
 	),
 	TP_fast_assign(
 		WPAN_PHY_ASSIGN;
 		__entry->page = chan->page;
 		__entry->channel = chan->channel;
+		__entry->preamble_code = chan->preamble_code;
+		__entry->mean_prf = chan->mean_prf;
 	),
-	TP_printk(WPAN_PHY_PR_FMT ", page: %d, channel: %d", WPAN_PHY_PR_ARG,
-		  __entry->page, __entry->channel)
+	TP_printk(WPAN_PHY_PR_FMT ", page: %d, channel: %d, preamble code: %d, mean prf: 0x%x",
+		  WPAN_PHY_PR_ARG,
+		  __entry->page, __entry->channel, __entry->preamble_code, __entry->mean_prf)
 );
 
 TRACE_EVENT(802154_rdev_set_tx_power,
@@ -303,16 +308,18 @@ DECLARE_EVENT_CLASS(802154_new_coordinator_evt,
 		__field(__le64, addr)
 		__field(u8, channel)
 		__field(u8, page)
+		__field(u8, preamble_code)
 	),
 	TP_fast_assign(
 		__entry->page = desc->chan.page;
 		__entry->channel = desc->chan.channel;
+		__entry->preamble_code = desc->chan.preamble_code;
 		__entry->pan_id = desc->addr->pan_id;
 		__entry->addr = desc->addr->extended_addr;
 	),
-	TP_printk("panid: %u, coord_addr: 0x%llx, page: %u, channel: %u",
+	TP_printk("panid: %u, coord_addr: 0x%llx, page: %u, channel: %u, preamble code: %u",
 		  __le16_to_cpu(__entry->pan_id), __le64_to_cpu(__entry->addr),
-		  __entry->page, __entry->channel)
+		  __entry->page, __entry->channel, __entry->preamble_code)
 );
 
 DEFINE_EVENT(802154_new_coordinator_evt, 802154_new_coordinator,
