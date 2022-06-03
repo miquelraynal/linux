@@ -273,16 +273,18 @@ TRACE_EVENT(802154_new_scan_event,
 		__field(__le64, addr)
 		__field(u8, channel)
 		__field(u8, page)
+		__field(u8, preamble_code)
 	),
 	TP_fast_assign(
 		__entry->page = desc->chan.page;
 		__entry->channel = desc->chan.channel;
+		__entry->preamble_code = desc->chan.preamble_code;
 		__entry->pan_id = desc->addr.pan_id;
 		__entry->addr = desc->addr.extended_addr;
 	),
-	TP_printk("panid: %u, coord_addr: 0x%llx, page: %u, channel: %u",
+	TP_printk("panid: %u, coord_addr: 0x%llx, page: %u, channel: %u, preamble code: %u",
 		  __le16_to_cpu(__entry->pan_id), __le64_to_cpu(__entry->addr),
-		  __entry->page, __entry->channel)
+		  __entry->page, __entry->channel, __entry->preamble_code)
 );
 
 DEFINE_EVENT(802154_new_scan_event, 802154_scan_event,

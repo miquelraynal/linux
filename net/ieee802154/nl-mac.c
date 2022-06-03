@@ -300,7 +300,7 @@ int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 	struct ieee802154_channel chan = {};
 
 	u8 channel, bcn_ord, sf_ord;
-	u8 page;
+	u8 page = 0, preamble_code = 0, mean_prf = 0;
 	int pan_coord, blx, coord_realign;
 	int ret = -EBUSY;
 
@@ -342,8 +342,12 @@ int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 
 	if (info->attrs[IEEE802154_ATTR_PAGE])
 		page = nla_get_u8(info->attrs[IEEE802154_ATTR_PAGE]);
-	else
-		page = 0;
+
+	if (info->attrs[IEEE802154_ATTR_PREAMBLE_CODE])
+		preamble_code = nla_get_u8(info->attrs[IEEE802154_ATTR_PREAMBLE_CODE]);
+
+	if (info->attrs[IEEE802154_ATTR_MEAN_PRF])
+		mean_prf = nla_get_u8(info->attrs[IEEE802154_ATTR_MEAN_PRF]);
 
 	if (addr.short_addr == cpu_to_le16(IEEE802154_ADDR_BROADCAST)) {
 		ieee802154_nl_start_confirm(dev, IEEE802154_NO_SHORT_ADDRESS);
@@ -354,6 +358,8 @@ int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 	rtnl_lock();
 	chan.page = page;
 	chan.channel = channel;
+	chan.preamble_code = preamble_code;
+	chan.mean_prf = mean_prf;
 	ret = ieee802154_mlme_ops(dev)->start_req(dev, &addr, &chan,
 		bcn_ord, sf_ord, pan_coord, blx, coord_realign);
 	rtnl_unlock();

@@ -237,6 +237,9 @@ static const struct nla_policy nl802154_policy[NL802154_ATTR_MAX+1] = {
 	[NL802154_ATTR_MAX_ASSOCIATIONS] = { .type = NLA_U32 },
 	[NL802154_ATTR_PEER] = { .type = NLA_NESTED },
 
+	[NL802154_ATTR_PREAMBLE_CODE] = { .type = NLA_U8 },
+	[NL802154_ATTR_MEAN_PRF] = { .type = NLA_U8 },
+
 #ifdef CONFIG_IEEE802154_NL802154_EXPERIMENTAL
 	[NL802154_ATTR_SEC_ENABLED] = { .type = NLA_U8, },
 	[NL802154_ATTR_SEC_OUT_LEVEL] = { .type = NLA_U32, },
@@ -346,7 +349,8 @@ nl802154_put_capabilities(struct sk_buff *msg,
 			  struct cfg802154_registered_device *rdev)
 {
 	const struct wpan_phy_supported *caps = &rdev->wpan_phy.supported;
-	struct nlattr *nl_caps, *nl_channels;
+	struct nlattr *nl_caps, *nl_channels, *nl_codes;
+	bool has_preamble_codes = false;
 	int i;
 
 	nl_caps = nla_nest_start_noflag(msg, NL802154_ATTR_WPAN_PHY_CAPS);
@@ -361,10 +365,40 @@ nl802154_put_capabilities(struct sk_buff *msg,
 		if (caps->channels[i]) {
 			if (nl802154_put_flags(msg, i, caps->channels[i]))
 				return -ENOBUFS;
+
+			if (i == 4)
+				has_preamble_codes = true;
 		}
 	}
 
 	nla_nest_end(msg, nl_channels);
+
+	if (has_preamble_codes) {
+		unsigned long channels = rdev->wpan_phy.supported.channels[4];
+		u64 supp;
+
+		nl_codes = nla_nest_start_noflag(msg, NL802154_CAP_ATTR_PREAMBLE_CODES);
+		if (!nl_codes)
+			return -ENOBUFS;
+
+		for_each_set_bit(i, &channels, IEEE802154_MAX_CHANNEL) {
+			supp = ieee802154_uwb_supported_codes(&rdev->wpan_phy, i);
+			if (nla_put_u64_64bit(msg, i, supp, NL802154_ATTR_PAD))
+				return -ENOBUFS;
+		}
+
+		nla_nest_end(msg, nl_codes);
+	}
+
+	if (rdev->wpan_phy.supported.prfs)
+		if (nla_put_u8(msg, NL802154_CAP_ATTR_MEAN_PRFS,
+			       rdev->wpan_phy.supported.prfs))
+			return -ENOBUFS;
+
+	if (rdev->wpan_phy.supported.dps)
+		if (nla_put_u8(msg, NL802154_CAP_ATTR_DPS,
+			       rdev->wpan_phy.supported.dps))
+			return -ENOBUFS;
 
 	if (rdev->wpan_phy.flags & WPAN_PHY_FLAG_CCA_ED_LEVEL) {
 		struct nlattr *nl_ed_lvls;
@@ -458,6 +492,16 @@ static int nl802154_send_wpan_phy(struct cfg802154_registered_device *rdev,
 		       rdev->wpan_phy.current_chan.page) ||
 	    nla_put_u8(msg, NL802154_ATTR_CHANNEL,
 		       rdev->wpan_phy.current_chan.channel))
+		goto nla_put_failure;
+
+	if (rdev->wpan_phy.current_chan.preamble_code &&
+	    nla_put_u8(msg, NL802154_ATTR_PREAMBLE_CODE,
+		       rdev->wpan_phy.current_chan.preamble_code))
+		goto nla_put_failure;
+
+	if (rdev->wpan_phy.current_chan.mean_prf &&
+	    nla_put_u8(msg, NL802154_ATTR_MEAN_PRF,
+		       rdev->wpan_phy.current_chan.mean_prf))
 		goto nla_put_failure;
 
 	/* cca mode */
@@ -948,7 +992,9 @@ static int nl802154_del_interface(struct sk_buff *skb, struct genl_info *info)
 static int nl802154_set_channel(struct sk_buff *skb, struct genl_info *info)
 {
 	struct cfg802154_registered_device *rdev = info->user_ptr[0];
+	struct wpan_phy *wpan_phy = &rdev->wpan_phy;
 	struct ieee802154_channel chan = {};
+	u64 supported;
 
 	if (!info->attrs[NL802154_ATTR_PAGE] ||
 	    !info->attrs[NL802154_ATTR_CHANNEL])
@@ -956,6 +1002,31 @@ static int nl802154_set_channel(struct sk_buff *skb, struct genl_info *info)
 
 	chan.page = nla_get_u8(info->attrs[NL802154_ATTR_PAGE]);
 	chan.channel = nla_get_u8(info->attrs[NL802154_ATTR_CHANNEL]);
+	if (info->attrs[NL802154_ATTR_PREAMBLE_CODE])
+		chan.preamble_code = nla_get_u8(info->attrs[NL802154_ATTR_PREAMBLE_CODE]);
+	if (info->attrs[NL802154_ATTR_MEAN_PRF])
+		chan.mean_prf = nla_get_u8(info->attrs[NL802154_ATTR_MEAN_PRF]);
+
+	/* Try to guess UWB chan properties if they are not provided */
+	if (ieee802154_is_uwb_chan(&chan)) {
+		/* If already on a UWB channel, do not change the configuration */
+		if (!chan.preamble_code)
+			chan.preamble_code = wpan_phy->current_chan.preamble_code;
+		if (!chan.mean_prf)
+			chan.mean_prf = wpan_phy->current_chan.mean_prf;
+
+		/* Otherwise fallback to the first mandatory/supported value */
+		if (!chan.preamble_code) {
+			supported = ieee802154_uwb_supported_codes(wpan_phy,
+								   chan.channel);
+			chan.preamble_code = ffs(supported) - 1;
+		}
+		if (!chan.mean_prf) {
+			supported = ieee802154_uwb_supported_prfs(wpan_phy) &
+				    ieee802154_uwb_default_prfs(chan.preamble_code);
+			chan.mean_prf = BIT(ffs(supported) - 1);
+		}
+	}
 
 	/* check 802.15.4 constraints */
 	if (!ieee802154_chan_is_valid(&rdev->wpan_phy, &chan))
@@ -1318,6 +1389,13 @@ static int nl802154_prep_scan_event_msg(struct sk_buff *msg,
 		goto nla_put_failure;
 
 	if (nla_put_u8(msg, NL802154_COORD_PAGE, desc->chan.page))
+		goto nla_put_failure;
+
+	if (nla_put_u8(msg, NL802154_COORD_PREAMBLE_CODE,
+		       desc->chan.preamble_code))
+		goto nla_put_failure;
+
+	if (nla_put_u8(msg, NL802154_COORD_MEAN_PRF, desc->chan.mean_prf))
 		goto nla_put_failure;
 
 	if (nla_put_u16(msg, NL802154_COORD_SUPERFRAME_SPEC,

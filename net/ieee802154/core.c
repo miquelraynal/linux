@@ -137,6 +137,45 @@ wpan_phy_new(const struct cfg802154_ops *ops, size_t priv_size)
 }
 EXPORT_SYMBOL(wpan_phy_new);
 
+static u64 ieee802154_uwb_default_codes(struct wpan_phy *phy, int channel)
+{
+	u64 supported = 0;
+
+	if (phy->supported.prfs & NL802154_MEAN_PRF_4030KHZ ||
+	    phy->supported.prfs	& NL802154_MEAN_PRF_16100KHZ) {
+		if (channel == 0 || channel == 1 || channel == 8 || channel == 12)
+			supported |= GENMASK(2, 1);
+
+		if (channel == 2 || channel == 5 || channel == 9 || channel == 13)
+			supported |= GENMASK(4, 3);
+
+		if (channel == 3 || channel == 6 || channel == 10 || channel == 14)
+			supported |= GENMASK(6, 5);
+
+		if (channel == 4 || channel == 7 || channel == 11 || channel == 15)
+			supported |= GENMASK(8, 1);
+	}
+
+	if (phy->supported.prfs & NL802154_MEAN_PRF_62890KHZ) {
+		if ((channel >= 0 && channel <= 3) ||
+		    (channel == 5 || channel == 6) ||
+		    (channel >= 8 && channel <= 10) ||
+		    (channel >= 12 && channel <= 14))
+			supported |= GENMASK(12, 9);
+
+		if (channel >= 0 && channel <= 15 && phy->supported.dps)
+			supported |= GENMASK(16, 13) | GENMASK(24, 21);
+
+		if (channel == 4 || channel == 7 || channel == 11 || channel == 15)
+			supported |= GENMASK(13, 9) | GENMASK(20, 17);
+	}
+
+	if (phy->supported.prfs & NL802154_MEAN_PRF_111090KHZ)
+		supported |= GENMASK(32, 25);
+
+	return supported;
+}
+
 int wpan_phy_register(struct wpan_phy *phy)
 {
 	struct cfg802154_registered_device *rdev = wpan_phy_to_rdev(phy);
