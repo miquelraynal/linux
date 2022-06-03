@@ -21,6 +21,7 @@ struct wpan_phy_cca;
 struct cfg802154_scan_request;
 struct cfg802154_beacon_request;
 struct ieee802154_addr;
+struct ieee802154_channel;
 
 #ifdef CONFIG_IEEE802154_NL802154_EXPERIMENTAL
 struct ieee802154_llsec_device_key;
@@ -48,7 +49,8 @@ struct cfg802154_ops {
 				    __le64 extended_addr);
 	int	(*del_virtual_intf)(struct wpan_phy *wpan_phy,
 				    struct wpan_dev *wpan_dev);
-	int	(*set_channel)(struct wpan_phy *wpan_phy, u8 page, u8 channel);
+	int	(*set_channel)(struct wpan_phy *wpan_phy,
+			       struct ieee802154_channel *chan);
 	int	(*set_cca_mode)(struct wpan_phy *wpan_phy,
 				const struct wpan_phy_cca *cca);
 	int     (*set_cca_ed_level)(struct wpan_phy *wpan_phy, s32 ed_level);
@@ -147,6 +149,11 @@ wpan_phy_supported_bool(bool b, enum nl802154_supported_bool_states st)
 	return false;
 }
 
+struct ieee802154_channel {
+	u8 page;
+	u8 channel;
+};
+
 struct wpan_phy_supported {
 	u32 channels[IEEE802154_MAX_PAGE + 1],
 	    cca_modes, cca_opts, iftypes;
@@ -211,8 +218,7 @@ struct wpan_phy {
 	 * We do not provide timing-related variables, as they
 	 * aren't used outside of driver
 	 */
-	u8 current_channel;
-	u8 current_page;
+	struct ieee802154_channel current_chan;
 	struct wpan_phy_supported supported;
 	/* current transmit_power in mBm */
 	s32 transmit_power;
@@ -282,8 +288,7 @@ struct ieee802154_addr {
 /**
  * struct ieee802154_coord_desc - Coordinator descriptor
  * @coord: PAN ID and coordinator address
- * @page: page this coordinator is using
- * @channel: channel this coordinator is using
+ * @chan: channel used by the coordinator
  * @superframe_spec: SuperFrame specification as received
  * @link_quality: link quality indicator at which the beacon was received
  * @gts_permit: the coordinator accepts GTS requests
@@ -291,8 +296,7 @@ struct ieee802154_addr {
  */
 struct ieee802154_coord_desc {
 	struct ieee802154_addr *addr;
-	u8 page;
-	u8 channel;
+	struct ieee802154_channel chan;
 	u16 superframe_spec;
 	u8 link_quality;
 	bool gts_permit;
@@ -547,7 +551,7 @@ static inline const char *wpan_phy_name(struct wpan_phy *phy)
 }
 
 void ieee802154_configure_durations(struct wpan_phy *phy,
-				    unsigned int page, unsigned int channel);
+				    struct ieee802154_channel *chan);
 
 struct ieee802154_coord_desc *
 cfg802154_alloc_coordinator(struct ieee802154_addr *coord);

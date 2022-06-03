@@ -76,8 +76,9 @@ DEFINE_EVENT(local_only_evt4, 802154_drv_stop,
 );
 
 TRACE_EVENT(802154_drv_set_channel,
-	TP_PROTO(struct ieee802154_local *local, u8 page, u8 channel),
-	TP_ARGS(local, page, channel),
+	TP_PROTO(struct ieee802154_local *local,
+		 struct ieee802154_channel *chan),
+	TP_ARGS(local, chan),
 	TP_STRUCT__entry(
 		LOCAL_ENTRY
 		__field(u8, page)
@@ -85,8 +86,8 @@ TRACE_EVENT(802154_drv_set_channel,
 	),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
-		__entry->page = page;
-		__entry->channel = channel;
+		__entry->page = chan->page;
+		__entry->channel = chan->channel;
 	),
 	TP_printk(LOCAL_PR_FMT ", page: %d, channel: %d", LOCAL_PR_ARG,
 		  __entry->page, __entry->channel)

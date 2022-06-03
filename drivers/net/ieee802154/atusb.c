@@ -70,7 +70,7 @@ struct atusb_chip_data {
 	u16 t_channel_switch;
 	int rssi_base_val;
 
-	int (*set_channel)(struct ieee802154_hw*, u8, u8);
+	int (*set_channel)(struct ieee802154_hw*, struct ieee802154_channel *);
 	int (*set_txpower)(struct ieee802154_hw*, s32);
 };
 
@@ -582,13 +582,14 @@ atusb_set_cca_ed_level(struct ieee802154_hw *hw, s32 mbm)
 	return -EINVAL;
 }
 
-static int atusb_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+static int atusb_channel(struct ieee802154_hw *hw,
+			 struct ieee802154_channel *chan)
 {
 	struct atusb *atusb = hw->priv;
 	int ret = -ENOTSUPP;
 
 	if (atusb->data) {
-		ret = atusb->data->set_channel(hw, page, channel);
+		ret = atusb->data->set_channel(hw, chan);
 		/* @@@ ugly synchronization */
 		msleep(atusb->data->t_channel_switch);
 	}
@@ -596,32 +597,34 @@ static int atusb_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 	return ret;
 }
 
-static int atusb_set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+static int atusb_set_channel(struct ieee802154_hw *hw,
+			     struct ieee802154_channel *chan)
 {
 	struct atusb *atusb = hw->priv;
 	int ret;
 
-	ret = atusb_write_subreg(atusb, SR_CHANNEL, channel);
+	ret = atusb_write_subreg(atusb, SR_CHANNEL, chan->channel);
 	if (ret < 0)
 		return ret;
 	return 0;
 }
 
-static int hulusb_set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+static int hulusb_set_channel(struct ieee802154_hw *hw,
+			      struct ieee802154_channel *chan)
 {
 	int rc;
 	int rssi_base_val;
 
 	struct atusb *lp = hw->priv;
 
-	if (channel == 0)
+	if (chan->channel == 0)
 		rc = atusb_write_subreg(lp, SR_SUB_MODE, 0);
 	else
 		rc = atusb_write_subreg(lp, SR_SUB_MODE, 1);
 	if (rc < 0)
 		return rc;
 
-	if (page == 0) {
+	if (chan->page == 0) {
 		rc = atusb_write_subreg(lp, SR_BPSK_QPSK, 0);
 		rssi_base_val = -100;
 	} else {
@@ -635,7 +638,7 @@ static int hulusb_set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 	if (rc < 0)
 		return rc;
 
-	return atusb_write_subreg(lp, SR_CHANNEL, channel);
+	return atusb_write_subreg(lp, SR_CHANNEL, chan->channel);
 }
 
 static int
@@ -846,7 +849,7 @@ static int atusb_get_and_conf_chip(struct atusb *atusb)
 
 	hw->phy->cca.mode = NL802154_CCA_ENERGY;
 
-	hw->phy->current_page = 0;
+	hw->phy->current_chan.page = 0;
 
 	if ((man_id_1 << 8 | man_id_0) != ATUSB_JEDEC_ATMEL) {
 		dev_err(&usb_dev->dev,
@@ -859,7 +862,7 @@ static int atusb_get_and_conf_chip(struct atusb *atusb)
 	case 2:
 		chip = "AT86RF230";
 		atusb->hw->phy->supported.channels[0] = 0x7FFF800;
-		atusb->hw->phy->current_channel = 11;	/* reset default */
+		atusb->hw->phy->current_chan.channel = 11; /* reset default */
 		atusb->hw->phy->supported.tx_powers = atusb_powers;
 		atusb->hw->phy->supported.tx_powers_size = ARRAY_SIZE(atusb_powers);
 		hw->phy->supported.cca_ed_levels = atusb_ed_levels;
@@ -868,7 +871,7 @@ static int atusb_get_and_conf_chip(struct atusb *atusb)
 	case 3:
 		chip = "AT86RF231";
 		atusb->hw->phy->supported.channels[0] = 0x7FFF800;
-		atusb->hw->phy->current_channel = 11;	/* reset default */
+		atusb->hw->phy->current_chan.channel = 11; /* reset default */
 		atusb->hw->phy->supported.tx_powers = atusb_powers;
 		atusb->hw->phy->supported.tx_powers_size = ARRAY_SIZE(atusb_powers);
 		hw->phy->supported.cca_ed_levels = atusb_ed_levels;
@@ -879,7 +882,7 @@ static int atusb_get_and_conf_chip(struct atusb *atusb)
 		atusb->hw->flags |= IEEE802154_HW_LBT;
 		atusb->hw->phy->supported.channels[0] = 0x00007FF;
 		atusb->hw->phy->supported.channels[2] = 0x00007FF;
-		atusb->hw->phy->current_channel = 5;
+		atusb->hw->phy->current_chan.channel = 5;
 		atusb->hw->phy->supported.lbt = NL802154_SUPPORTED_BOOL_BOTH;
 		atusb->hw->phy->supported.tx_powers = at86rf212_powers;
 		atusb->hw->phy->supported.tx_powers_size = ARRAY_SIZE(at86rf212_powers);

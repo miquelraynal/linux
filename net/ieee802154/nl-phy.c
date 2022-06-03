@@ -44,8 +44,8 @@ static int ieee802154_nl_fill_phy(struct sk_buff *msg, u32 portid,
 
 	rtnl_lock();
 	if (nla_put_string(msg, IEEE802154_ATTR_PHY_NAME, wpan_phy_name(phy)) ||
-	    nla_put_u8(msg, IEEE802154_ATTR_PAGE, phy->current_page) ||
-	    nla_put_u8(msg, IEEE802154_ATTR_CHANNEL, phy->current_channel))
+	    nla_put_u8(msg, IEEE802154_ATTR_PAGE, phy->current_chan.page) ||
+	    nla_put_u8(msg, IEEE802154_ATTR_CHANNEL, phy->current_chan.channel))
 		goto nla_put_failure;
 	for (i = 0; i <= IEEE802154_MAX_PAGE; i++) {
 		if (phy->supported.channels[i])

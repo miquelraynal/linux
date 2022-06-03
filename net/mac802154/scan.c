@@ -49,11 +49,8 @@ static int mac802154_end_of_scan(struct ieee802154_local *local,
 
 	drv_exit_scan_mode(local);
 
-	drv_set_channel(local, local->phy->current_page,
-			local->phy->current_channel);
-	ieee802154_configure_durations(local->phy, local->phy->current_page,
-				       local->phy->current_channel);
-
+	drv_set_channel(local, &local->phy->current_chan);
+	ieee802154_configure_durations(local->phy, &local->phy->current_chan);
 	clear_bit(IEEE802154_IS_SCANNING, &local->ongoing);
 	drv_stop(local);
 	synchronize_net();
@@ -148,6 +145,7 @@ void mac802154_scan_worker(struct work_struct *work)
 		container_of(work, struct ieee802154_local, scan_work.work);
 	struct cfg802154_scan_request *scan_req;
 	struct ieee802154_sub_if_data *sdata;
+	struct ieee802154_channel c = {};
 	unsigned int scan_duration;
 	unsigned long chan;
 	int ret;
@@ -187,9 +185,11 @@ void mac802154_scan_worker(struct work_struct *work)
 		 * releasing the scan lock, to avoid processing beacons which
 		 * have been received during this time frame.
 		 */
-		ret = drv_set_channel(local, scan_req->page, chan);
+		c.page = scan_req->page;
+		c.channel = chan;
+		ret = drv_set_channel(local, &c);
 		local->scan_channel_idx = chan;
-		ieee802154_configure_durations(local->phy, scan_req->page, chan);
+		ieee802154_configure_durations(local->phy, &c);
 		mac802154_flush_queued_beacons(local);
 	} while (ret);
 
@@ -298,8 +298,8 @@ int mac802154_process_beacon(struct ieee802154_local *local,
 	if (!desc)
 		return -ENOMEM;
 
-	desc->page = scan_req->page;
-	desc->channel = local->scan_channel_idx;
+	desc->chan.page = scan_req->page;
+	desc->chan.channel = local->scan_channel_idx;
 	desc->link_quality = mac_cb(skb)->lqi;
 	desc->superframe_spec = get_unaligned_le16(skb->data);
 	desc->gts_permit = bh->gts_permit;

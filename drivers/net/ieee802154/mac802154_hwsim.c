@@ -46,8 +46,7 @@ static const struct genl_multicast_group hwsim_mcgrps[] = {
 };
 
 struct hwsim_pib {
-	u8 page;
-	u8 channel;
+	struct ieee802154_channel chan;
 	struct ieee802154_hw_addr_filt filt;
 
 	struct rcu_head rcu;
@@ -90,7 +89,8 @@ static int hwsim_hw_ed(struct ieee802154_hw *hw, u8 *level)
 	return 0;
 }
 
-static int hwsim_hw_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+static int hwsim_hw_channel(struct ieee802154_hw *hw,
+			    struct ieee802154_channel *chan)
 {
 	struct hwsim_phy *phy = hw->priv;
 	struct hwsim_pib *pib, *pib_old;
@@ -99,8 +99,8 @@ static int hwsim_hw_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 	if (!pib)
 		return -ENOMEM;
 
-	pib->page = page;
-	pib->channel = channel;
+	pib->chan.page = chan->page;
+	pib->chan.channel = chan->channel;
 
 	pib_old = rtnl_dereference(phy->pib);
 
@@ -127,8 +127,8 @@ static int hwsim_hw_addr_filt(struct ieee802154_hw *hw,
 
 	pib_old = rtnl_dereference(phy->pib);
 
-	pib->page = pib_old->page;
-	pib->channel = pib_old->channel;
+	pib->chan.page = pib_old->chan.page;
+	pib->chan.channel = pib_old->chan.channel;
 
 	pib->filt.short_addr = filt->short_addr;
 	pib->filt.pan_id = filt->pan_id;
@@ -268,8 +268,8 @@ static int hwsim_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 			continue;
 
 		endpoint_pib = rcu_dereference(e->endpoint->pib);
-		if (current_pib->page == endpoint_pib->page &&
-		    current_pib->channel == endpoint_pib->channel) {
+		if (current_pib->chan.page == endpoint_pib->chan.page &&
+		    current_pib->chan.channel == endpoint_pib->chan.channel) {
 			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
 
 			einfo = rcu_dereference(e->info);
@@ -923,14 +923,14 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 	ieee802154_random_extended_addr(&hw->phy->perm_extended_addr);
 
 	/* hwsim phy channel 13 as default */
-	hw->phy->current_channel = 13;
+	hw->phy->current_chan.channel = 13;
 	pib = kzalloc(sizeof(*pib), GFP_KERNEL);
 	if (!pib) {
 		err = -ENOMEM;
 		goto err_pib;
 	}
 
-	pib->channel = 13;
+	pib->chan.channel = 13;
 	pib->filt.short_addr = cpu_to_le16(IEEE802154_ADDR_BROADCAST);
 	pib->filt.pan_id = cpu_to_le16(IEEE802154_PANID_BROADCAST);
 	rcu_assign_pointer(phy->pib, pib);

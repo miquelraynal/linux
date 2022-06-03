@@ -18,7 +18,8 @@
 #include "ieee802154_i.h"
 #include "driver-ops.h"
 
-void mac802154_dev_set_page_channel(struct net_device *dev, u8 page, u8 chan)
+void mac802154_dev_set_chan(struct net_device *dev,
+			    struct ieee802154_channel *chan)
 {
 	struct ieee802154_sub_if_data *sdata = IEEE802154_DEV_TO_SUB_IF(dev);
 	struct ieee802154_local *local = sdata->local;
@@ -28,12 +29,12 @@ void mac802154_dev_set_page_channel(struct net_device *dev, u8 page, u8 chan)
 
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	res = drv_set_channel(local, page, chan);
+	res = drv_set_channel(local, chan);
 	if (res) {
 		pr_debug("set_channel failed\n");
 	} else {
-		local->phy->current_channel = chan;
-		local->phy->current_page = page;
+		local->phy->current_chan.channel = chan->channel;
+		local->phy->current_chan.page = chan->page;
 	}
 }
 

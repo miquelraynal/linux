@@ -717,20 +717,21 @@ static void adf7242_stop(struct ieee802154_hw *hw)
 	adf7242_clear_irqstat(lp);
 }
 
-static int adf7242_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+static int adf7242_channel(struct ieee802154_hw *hw,
+			   struct ieee802154_channel *chan)
 {
 	struct adf7242_local *lp = hw->priv;
 	unsigned long freq;
 
-	dev_dbg(&lp->spi->dev, "%s :Channel=%d\n", __func__, channel);
+	dev_dbg(&lp->spi->dev, "%s :Channel=%d\n", __func__, chan->channel);
 
 	might_sleep();
 
-	WARN_ON(page != 0);
-	WARN_ON(channel < 11);
-	WARN_ON(channel > 26);
+	WARN_ON(chan->page != 0);
+	WARN_ON(chan->channel < 11);
+	WARN_ON(chan->channel > 26);
 
-	freq = (2405 + 5 * (channel - 11)) * 100;
+	freq = (2405 + 5 * (chan->channel - 11)) * 100;
 	adf7242_cmd(lp, CMD_RC_PHY_RDY);
 
 	adf7242_write_reg(lp, REG_CH_FREQ0, freq);

@@ -467,9 +467,9 @@ static int nl802154_send_wpan_phy(struct cfg802154_registered_device *rdev,
 
 	/* current channel settings */
 	if (nla_put_u8(msg, NL802154_ATTR_PAGE,
-		       rdev->wpan_phy.current_page) ||
+		       rdev->wpan_phy.current_chan.page) ||
 	    nla_put_u8(msg, NL802154_ATTR_CHANNEL,
-		       rdev->wpan_phy.current_channel))
+		       rdev->wpan_phy.current_chan.channel))
 		goto nla_put_failure;
 
 	/* TODO remove this behaviour, we still keep support it for a while
@@ -966,21 +966,22 @@ static int nl802154_del_interface(struct sk_buff *skb, struct genl_info *info)
 static int nl802154_set_channel(struct sk_buff *skb, struct genl_info *info)
 {
 	struct cfg802154_registered_device *rdev = info->user_ptr[0];
-	u8 channel, page;
+	struct ieee802154_channel chan = {};
 
 	if (!info->attrs[NL802154_ATTR_PAGE] ||
 	    !info->attrs[NL802154_ATTR_CHANNEL])
 		return -EINVAL;
 
-	page = nla_get_u8(info->attrs[NL802154_ATTR_PAGE]);
-	channel = nla_get_u8(info->attrs[NL802154_ATTR_CHANNEL]);
+	chan.page = nla_get_u8(info->attrs[NL802154_ATTR_PAGE]);
+	chan.channel = nla_get_u8(info->attrs[NL802154_ATTR_CHANNEL]);
 
 	/* check 802.15.4 constraints */
-	if (page > IEEE802154_MAX_PAGE || channel > IEEE802154_MAX_CHANNEL ||
-	    !(rdev->wpan_phy.supported.channels[page] & BIT(channel)))
+	if (chan.page > IEEE802154_MAX_PAGE ||
+	    chan.channel > IEEE802154_MAX_CHANNEL ||
+	    !(rdev->wpan_phy.supported.channels[chan.page] & BIT(chan.channel)))
 		return -EINVAL;
 
-	return rdev_set_channel(rdev, page, channel);
+	return rdev_set_channel(rdev, &chan);
 }
 
 static int nl802154_set_cca_mode(struct sk_buff *skb, struct genl_info *info)
@@ -1327,10 +1328,10 @@ static int nl802154_prep_new_coord_msg(struct sk_buff *msg,
 			goto nla_put_failure;
 	}
 
-	if (nla_put_u8(msg, NL802154_COORD_CHANNEL, desc->channel))
+	if (nla_put_u8(msg, NL802154_COORD_CHANNEL, desc->chan.channel))
 		goto nla_put_failure;
 
-	if (nla_put_u8(msg, NL802154_COORD_PAGE, desc->page))
+	if (nla_put_u8(msg, NL802154_COORD_PAGE, desc->chan.page))
 		goto nla_put_failure;
 
 	if (nla_put_u16(msg, NL802154_COORD_SUPERFRAME_SPEC,
@@ -1447,7 +1448,7 @@ static int nl802154_trigger_scan(struct sk_buff *skb, struct genl_info *info)
 		}
 	} else {
 		/* Use current page by default */
-		request->page = wpan_phy->current_page;
+		request->page = wpan_phy->current_chan.page;
 	}
 
 	if (info->attrs[NL802154_ATTR_SCAN_CHANNELS]) {

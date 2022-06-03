@@ -236,7 +236,8 @@ void ieee802154_release_queue(struct ieee802154_local *local);
 void ieee802154_disable_queue(struct ieee802154_local *local);
 
 /* MIB callbacks */
-void mac802154_dev_set_page_channel(struct net_device *dev, u8 page, u8 chan);
+void mac802154_dev_set_chan(struct net_device *dev,
+			    struct ieee802154_channel *chan);
 
 int mac802154_get_params(struct net_device *dev,
 			 struct ieee802154_llsec_params *params);
