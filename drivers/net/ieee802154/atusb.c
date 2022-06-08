@@ -893,6 +893,8 @@ static int atusb_get_and_conf_chip(struct atusb *atusb)
 		goto fail;
 	}
 
+	hw->phy->supported.iftypes |= BIT(NL802154_IFTYPE_COORD);
+
 	hw->phy->transmit_power = hw->phy->supported.tx_powers[0];
 	hw->phy->cca_ed_level = hw->phy->supported.cca_ed_levels[7];
 

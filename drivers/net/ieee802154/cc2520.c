@@ -837,6 +837,7 @@ static int cc2520_register(struct cc2520_private *priv)
 
 	/* We do support only 2.4 Ghz */
 	priv->hw->phy->supported.channels[0] = 0x7FFF800;
+	priv->hw->phy->supported.iftypes |= BIT(NL802154_IFTYPE_COORD);
 	priv->hw->flags = IEEE802154_HW_TX_OMIT_CKSUM | IEEE802154_HW_AFILT |
 			  IEEE802154_HW_PROMISCUOUS;
 

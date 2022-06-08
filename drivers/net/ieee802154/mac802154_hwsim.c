@@ -918,6 +918,8 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 	/* 950 MHz GFSK 802.15.4d-2009 */
 	hw->phy->supported.channels[6] |= 0x3ffc00;
 
+	hw->phy->supported.iftypes |= BIT(NL802154_IFTYPE_COORD);
+
 	ieee802154_random_extended_addr(&hw->phy->perm_extended_addr);
 
 	/* hwsim phy channel 13 as default */

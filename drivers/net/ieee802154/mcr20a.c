@@ -1000,6 +1000,9 @@ static void mcr20a_hw_setup(struct mcr20a_local *lp)
 
 	phy->supported.channels[0] = MCR20A_VALID_CHANNELS;
 	phy->current_page = 0;
+
+	phy->supported.iftypes |= BIT(NL802154_IFTYPE_COORD);
+
 	/* MCR20A default reset value */
 	phy->current_channel = 20;
 	phy->supported.tx_powers = mcr20a_powers;

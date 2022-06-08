@@ -1212,6 +1212,7 @@ static int adf7242_probe(struct spi_device *spi)
 
 	/* We support only 2.4 Ghz */
 	hw->phy->supported.channels[0] = 0x7FFF800;
+	hw->phy->supported.iftypes |= BIT(NL802154_IFTYPE_COORD);
 
 	hw->flags = IEEE802154_HW_OMIT_CKSUM |
 		    IEEE802154_HW_CSMA_PARAMS |

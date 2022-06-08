@@ -1533,6 +1533,8 @@ at86rf230_detect_device(struct at86rf230_local *lp)
 		goto not_supp;
 	}
 
+	lp->hw->phy->supported.iftypes |= BIT(NL802154_IFTYPE_COORD);
+
 	lp->hw->phy->cca_ed_level = lp->hw->phy->supported.cca_ed_levels[7];
 	lp->hw->phy->transmit_power = lp->hw->phy->supported.tx_powers[0];
 
