@@ -143,14 +143,14 @@ int ieee802154_mlme_tx(struct ieee802154_local *local,
 {
 	int ret;
 
-	/* Avoid possible calls to ->ndo_stop() when we asynchronously perform
-	 * MLME transmissions.
+	/* Serialize possible calls to ->ndo_stop() when we asynchronously
+	 * perform MLME transmissions.
 	 */
-	rtnl_lock();
+	mutex_lock(&local->device_lock);
 
 	/* Ensure the device was not stopped, otherwise error out */
 	if (!local->open_count) {
-		rtnl_unlock();
+		mutex_unlock(&local->device_lock);
 		return -ENETDOWN;
 	}
 
@@ -158,14 +158,14 @@ int ieee802154_mlme_tx(struct ieee802154_local *local,
 	 * net interface expects this cannot happen.
 	 */
 	if (WARN_ON_ONCE(!netif_running(sdata->dev))) {
-		rtnl_unlock();
+		mutex_unlock(&local->device_lock);
 		return -ENETDOWN;
 	}
 
 	ieee802154_tx(local, skb);
 	ret = ieee802154_sync_queue(local);
 
-	rtnl_unlock();
+	mutex_unlock(&local->device_lock);
 
 	return ret;
 }

@@ -31,7 +31,9 @@ struct ieee802154_local {
 	/* ieee802154 phy */
 	struct wpan_phy *phy;
 
+	/* Open/close counter and lock */
 	int open_count;
+	struct mutex device_lock;
 
 	/* As in mac80211 slaves list is modified:
 	 * 1) under the RTNL

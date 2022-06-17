@@ -303,10 +303,14 @@ static int mac802154_slave_close(struct net_device *dev)
 
 	ASSERT_RTNL();
 
+	mutex_lock(&local->device_lock);
+
 	netif_stop_queue(dev);
 	local->open_count--;
 
 	clear_bit(SDATA_STATE_RUNNING, &sdata->state);
+
+	mutex_unlock(&local->device_lock);
 
 	if (!local->open_count)
 		ieee802154_stop_device(local);
