@@ -4,5 +4,11 @@
 
 int nl802154_init(void);
 void nl802154_exit(void);
+int nl802154_advertise_new_coordinator(struct wpan_phy *wpan_phy,
+				       struct wpan_dev *wpan_dev,
+				       struct ieee802154_coord_desc *desc);
+int nl802154_advertise_known_coordinator(struct wpan_phy *wpan_phy,
+					 struct wpan_dev *wpan_dev,
+					 struct ieee802154_coord_desc *desc);
 
 #endif /* __IEEE802154_NL802154_H */
