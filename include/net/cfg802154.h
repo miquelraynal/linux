@@ -401,6 +401,10 @@ struct wpan_dev {
 
 	/* fallback for acknowledgment bit setting */
 	bool ackreq;
+
+	/* Coordinators management during scans */
+	spinlock_t coord_list_lock;
+	struct list_head coord_list;
 };
 
 #define to_phy(_dev)	container_of(_dev, struct wpan_phy, dev)
@@ -450,5 +454,12 @@ static inline const char *wpan_phy_name(struct wpan_phy *phy)
 }
 
 void ieee802154_configure_durations(struct wpan_phy *phy);
+
+struct ieee802154_coord_desc *
+cfg802154_alloc_coordinator(struct ieee802154_addr *coord);
+void cfg802154_record_coordinator(struct wpan_phy *wpan_phy,
+				  struct wpan_dev *wpan_dev,
+				  struct ieee802154_coord_desc *desc);
+void cfg802154_flush_known_coordinators(struct wpan_dev *wpan_dev);
 
 #endif /* __NET_CFG802154_H */

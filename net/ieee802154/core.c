@@ -276,6 +276,8 @@ static int cfg802154_netdev_notifier_call(struct notifier_block *nb,
 		wpan_dev->identifier = ++rdev->wpan_dev_id;
 		list_add_rcu(&wpan_dev->list, &rdev->wpan_dev_list);
 		rdev->devlist_generation++;
+		spin_lock_init(&wpan_dev->coord_list_lock);
+		INIT_LIST_HEAD(&wpan_dev->coord_list);
 
 		wpan_dev->netdev = dev;
 		break;

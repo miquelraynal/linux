@@ -1368,6 +1368,8 @@ static int nl802154_advertise_coordinator(struct wpan_phy *wpan_phy,
 	struct sk_buff *msg;
 	int ret;
 
+	lockdep_assert(&wpan_dev->coord_list_lock);
+
 	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, GFP_ATOMIC);
 	if (!msg)
 		return -ENOMEM;
