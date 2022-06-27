@@ -139,6 +139,23 @@ static int mac802154_transmit_beacon_req_locked(struct ieee802154_local *local,
 	return ieee802154_mlme_tx(local, sdata, skb);
 }
 
+static unsigned int
+mac802154_scan_get_next_channel(struct ieee802154_local *local,
+				struct cfg802154_scan_request *scan_req)
+{
+	return find_next_bit((const unsigned long *)&scan_req->channels,
+			     IEEE802154_MAX_CHANNEL + 1,
+			     local->scan_channel_idx + 1);
+}
+
+static void mac802154_scan_find_next_chan(struct ieee802154_local *local,
+					  struct cfg802154_scan_request *scan_req,
+					  struct ieee802154_channel *c)
+{
+	c->page = scan_req->page;
+	c->channel = mac802154_scan_get_next_channel(local, scan_req);
+}
+
 void mac802154_scan_worker(struct work_struct *work)
 {
 	struct ieee802154_local *local =
@@ -147,7 +164,6 @@ void mac802154_scan_worker(struct work_struct *work)
 	struct ieee802154_sub_if_data *sdata;
 	struct ieee802154_channel c = {};
 	unsigned int scan_duration;
-	unsigned long chan;
 	int ret;
 
 	/* In practice we don't really need the rtnl here, besides for the
@@ -169,12 +185,10 @@ void mac802154_scan_worker(struct work_struct *work)
 		goto queue_work;
 
 	do {
-		chan = find_next_bit((const unsigned long *)&scan_req->channels,
-				     IEEE802154_MAX_CHANNEL + 1,
-				     local->scan_channel_idx + 1);
+		mac802154_scan_find_next_chan(local, scan_req, &c);
 
 		/* If there are no more channels left, complete the scan */
-		if (chan > IEEE802154_MAX_CHANNEL) {
+		if (c.channel > IEEE802154_MAX_CHANNEL) {
 			mac802154_end_of_scan(local, sdata, false);
 			goto unlock_mutex;
 		}
@@ -185,10 +199,8 @@ void mac802154_scan_worker(struct work_struct *work)
 		 * releasing the scan lock, to avoid processing beacons which
 		 * have been received during this time frame.
 		 */
-		c.page = scan_req->page;
-		c.channel = chan;
 		ret = drv_set_channel(local, &c);
-		local->scan_channel_idx = chan;
+		local->scan_channel_idx = c.channel;
 		ieee802154_configure_durations(local->phy, &c);
 		mac802154_flush_queued_beacons(local);
 	} while (ret);
@@ -204,8 +216,8 @@ queue_work:
 	scan_duration = mac802154_scan_get_channel_time(scan_req->duration,
 							local->phy->symbol_duration);
 	dev_dbg(&sdata->dev->dev,
-		"Scan channel %lu of page %u for %ums\n",
-		chan, scan_req->page, jiffies_to_msecs(scan_duration));
+		"Scan channel %u of page %u (code %u) for %ums\n",
+		c.channel, c.page, c.preamble_code, jiffies_to_msecs(scan_duration));
 	queue_delayed_work(local->mac_wq, &local->scan_work, scan_duration);
 
 unlock_mutex:
