@@ -278,6 +278,8 @@ static int cfg802154_netdev_notifier_call(struct notifier_block *nb,
 		rdev->devlist_generation++;
 		spin_lock_init(&wpan_dev->coord_list_lock);
 		INIT_LIST_HEAD(&wpan_dev->coord_list);
+		mutex_init(&wpan_dev->association_lock);
+		INIT_LIST_HEAD(&wpan_dev->children);
 
 		wpan_dev->netdev = dev;
 		break;

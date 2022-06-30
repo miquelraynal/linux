@@ -113,3 +113,56 @@ void cfg802154_flush_known_coordinators(struct wpan_dev *wpan_dev)
 	spin_unlock_bh(&wpan_dev->coord_list_lock);
 }
 EXPORT_SYMBOL_GPL(cfg802154_flush_known_coordinators);
+
+static bool cfg802154_same_addr(struct ieee802154_pan_device *a,
+				struct ieee802154_addr *b)
+{
+	if (!a || !b)
+		return false;
+
+	switch (b->mode) {
+	case IEEE802154_ADDR_SHORT:
+		return a->short_addr == b->short_addr;
+	case IEEE802154_ADDR_LONG:
+		return a->extended_addr == b->extended_addr;
+	default:
+		return false;
+	}
+}
+
+bool cfg802154_device_is_associated(struct wpan_dev *wpan_dev)
+{
+	bool is_assoc;
+
+	mutex_lock(&wpan_dev->association_lock);
+	is_assoc = !list_empty(&wpan_dev->children) || wpan_dev->parent;
+	mutex_unlock(&wpan_dev->association_lock);
+
+	return is_assoc;
+}
+
+bool cfg802154_device_is_parent(struct wpan_dev *wpan_dev,
+				struct ieee802154_addr *target)
+{
+	lockdep_assert_held(&wpan_dev->association_lock);
+
+	if (cfg802154_same_addr(wpan_dev->parent, target))
+		return true;
+
+	return false;
+}
+
+struct ieee802154_pan_device *
+cfg802154_device_is_child(struct wpan_dev *wpan_dev,
+			  struct ieee802154_addr *target)
+{
+	struct ieee802154_pan_device *child;
+
+	lockdep_assert_held(&wpan_dev->association_lock);
+
+	list_for_each_entry(child, &wpan_dev->children, node)
+		if (cfg802154_same_addr(child, target))
+			return child;
+
+	return NULL;
+}
