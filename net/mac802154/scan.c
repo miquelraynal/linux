@@ -1,0 +1,244 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * IEEE 802.15.4 scanning management
+ *
+ * Copyright (C) 2021 Qorvo US, Inc
+ * Authors:
+ *   - David Girault <david.girault@qorvo.com>
+ *   - Miquel Raynal <miquel.raynal@bootlin.com>
+ */
+
+#include <linux/module.h>
+#include <linux/rtnetlink.h>
+#include <net/mac802154.h>
+
+#include "ieee802154_i.h"
+#include "driver-ops.h"
+#include "../ieee802154/nl802154.h"
+
+static int mac802154_send_scan_done(struct ieee802154_local *local, u8 cmd)
+{
+	struct cfg802154_scan_request *scan_req;
+	struct wpan_phy *wpan_phy;
+	struct wpan_dev *wpan_dev;
+
+	scan_req = rcu_dereference_protected(local->scan_req,
+					     lockdep_is_held(&local->scan_lock));
+	wpan_phy = scan_req->wpan_phy;
+	wpan_dev = scan_req->wpan_dev;
+
+	cfg802154_flush_known_coordinators(wpan_dev);
+
+	return nl802154_send_scan_done(wpan_phy, wpan_dev, scan_req, cmd);
+}
+
+static int mac802154_end_of_scan(struct ieee802154_local *local,
+				 struct ieee802154_sub_if_data *sdata,
+				 bool aborted)
+{
+	u8 cmd;
+
+	drv_set_channel(local, local->phy->current_page,
+			local->phy->current_channel);
+	ieee802154_configure_durations(local->phy, local->phy->current_page,
+				       local->phy->current_channel);
+
+	clear_bit(IEEE802154_IS_SCANNING, &local->ongoing);
+	drv_stop(local);
+	synchronize_net();
+	sdata->required_filtering = sdata->iface_default_filtering;
+	drv_start(local, sdata->required_filtering, &local->addr_filt);
+	ieee802154_mlme_op_post(local);
+	module_put(local->hw.parent->driver->owner);
+
+	cmd = aborted ? NL802154_CMD_ABORT_SCAN : NL802154_CMD_SCAN_DONE;
+
+	return mac802154_send_scan_done(local, cmd);
+}
+
+int mac802154_abort_scan_locked(struct ieee802154_sub_if_data *sdata)
+{
+	struct ieee802154_local *local = sdata->local;
+
+	lockdep_assert_held(&local->scan_lock);
+
+	if (!mac802154_is_scanning(local))
+		return -ESRCH;
+
+	cancel_delayed_work(&local->scan_work);
+
+	return mac802154_end_of_scan(local, sdata, true);
+}
+
+static unsigned int mac802154_scan_get_channel_time(u8 duration_order,
+						    u8 symbol_duration)
+{
+	u64 base_super_frame_duration = (u64)symbol_duration *
+		IEEE802154_SUPERFRAME_PERIOD * IEEE802154_SLOT_PERIOD;
+
+	return usecs_to_jiffies(base_super_frame_duration *
+				(BIT(duration_order) + 1));
+}
+
+void mac802154_flush_queued_beacons(struct ieee802154_local *local)
+{
+	struct cfg802154_mac_pkt *beacon, *tmp;
+
+	lockdep_assert_held(&local->scan_lock);
+
+	list_for_each_entry_safe(beacon, tmp, &local->rx_beacon_list, node) {
+		list_del(&beacon->node);
+		kfree_skb(beacon->skb);
+		kfree(beacon);
+	}
+}
+
+void mac802154_scan_worker(struct work_struct *work)
+{
+	struct ieee802154_local *local =
+		container_of(work, struct ieee802154_local, scan_work.work);
+	struct cfg802154_scan_request *scan_req;
+	struct ieee802154_sub_if_data *sdata;
+	unsigned int scan_duration;
+	unsigned long chan;
+	int ret;
+
+	/* In practice we don't really need the rtnl here, besides for the
+	 * drv_set_channel() operation. Unfortunately, as the rtnl is always
+	 * taken before any other lock, we must acquire it before scan_lock() to
+	 * avoid circular dependencies.
+	 */
+	rtnl_lock();
+	mutex_lock(&local->scan_lock);
+
+	if (!mac802154_is_scanning(local))
+		goto unlock_mutex;
+
+	scan_req = rcu_dereference_protected(local->scan_req,
+					     lockdep_is_held(&local->scan_lock));
+	sdata = IEEE802154_WPAN_DEV_TO_SUB_IF(scan_req->wpan_dev);
+
+	if (local->suspended || !ieee802154_sdata_running(sdata))
+		goto queue_work;
+
+	do {
+		chan = find_next_bit((const unsigned long *)&scan_req->channels,
+				     IEEE802154_MAX_CHANNEL + 1,
+				     local->scan_channel_idx + 1);
+
+		/* If there are no more channels left, complete the scan */
+		if (chan > IEEE802154_MAX_CHANNEL) {
+			mac802154_end_of_scan(local, sdata, false);
+			goto unlock_mutex;
+		}
+
+		/* Bypass the stack on purpose. As the channel change cannot be
+		 * made atomic with regard to the incoming beacon flow, we flush
+		 * the beacons list after changing the channel and before
+		 * releasing the scan lock, to avoid processing beacons which
+		 * have been received during this time frame.
+		 */
+		ret = drv_set_channel(local, scan_req->page, chan);
+		local->scan_channel_idx = chan;
+		ieee802154_configure_durations(local->phy, scan_req->page, chan);
+		mac802154_flush_queued_beacons(local);
+	} while (ret);
+
+queue_work:
+	scan_duration = mac802154_scan_get_channel_time(scan_req->duration,
+							local->phy->symbol_duration);
+	dev_dbg(&sdata->dev->dev,
+		"Scan channel %lu of page %u for %ums\n",
+		chan, scan_req->page, jiffies_to_msecs(scan_duration));
+	queue_delayed_work(local->mac_wq, &local->scan_work, scan_duration);
+
+unlock_mutex:
+	mutex_unlock(&local->scan_lock);
+	rtnl_unlock();
+}
+
+int mac802154_trigger_scan_locked(struct ieee802154_sub_if_data *sdata,
+				  struct cfg802154_scan_request *request)
+{
+	struct ieee802154_local *local = sdata->local;
+	int ret;
+
+	lockdep_assert_held(&local->scan_lock);
+
+	if (mac802154_is_scanning(local))
+		return -EBUSY;
+
+	/* TODO: support other scanning type */
+	if (request->type != NL802154_SCAN_PASSIVE)
+		return -EOPNOTSUPP;
+
+	/* Store scanning parameters */
+	rcu_assign_pointer(local->scan_req, request);
+
+	/* Starting a background job, ensure the module cannot be removed */
+	if (!try_module_get(local->hw.parent->driver->owner))
+		return -ENODEV;
+
+	/* Software scanning requires to set promiscuous mode, so we need to
+	 * pause the Tx queue during the entire operation.
+	 */
+	ieee802154_mlme_op_pre(local);
+
+	drv_stop(local);
+	synchronize_net();
+	sdata->required_filtering = IEEE802154_FILTERING_3_SCAN;
+	ret = drv_start(local, sdata->required_filtering, &local->addr_filt);
+	if (ret) {
+		module_put(local->hw.parent->driver->owner);
+		ieee802154_mlme_op_post(local);
+		return ret;
+	}
+
+	local->scan_channel_idx = -1;
+	set_bit(IEEE802154_IS_SCANNING, &local->ongoing);
+
+	queue_delayed_work(local->mac_wq, &local->scan_work, 0);
+
+	nl802154_send_start_scan(local->scan_req->wpan_phy,
+				 local->scan_req->wpan_dev);
+
+	return 0;
+}
+
+int mac802154_process_beacon(struct ieee802154_local *local,
+			     struct sk_buff *skb)
+{
+	struct ieee802154_beacon_hdr *bh = (void *)skb->data;
+	struct ieee802154_addr *src = &mac_cb(skb)->source;
+	struct cfg802154_scan_request *scan_req;
+	struct ieee802154_coord_desc *desc;
+
+	if (skb->len != sizeof(*bh))
+		return -EINVAL;
+
+	if (unlikely(src->mode == IEEE802154_ADDR_NONE))
+		return -EINVAL;
+
+	scan_req = rcu_dereference_protected(local->scan_req,
+					     &local->scan_lock);
+	if (unlikely(!scan_req))
+		return -EINVAL;
+
+	dev_dbg(&skb->dev->dev,
+		"BEACON received on channel %d of page %d\n",
+		local->scan_channel_idx, scan_req->page);
+
+	/* Parse beacon, create PAN information and forward to upper layers */
+	desc = cfg802154_alloc_coordinator(src);
+	if (!desc)
+		return -ENOMEM;
+
+	desc->page = scan_req->page;
+	desc->channel = local->scan_channel_idx;
+	desc->link_quality = mac_cb(skb)->lqi;
+	desc->superframe_spec = get_unaligned_le16(skb->data);
+	desc->gts_permit = bh->gts_permit;
+	cfg802154_record_coordinator(scan_req->wpan_phy, scan_req->wpan_dev, desc);
+
+	return 0;
+}

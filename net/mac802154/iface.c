@@ -303,6 +303,12 @@ static int mac802154_slave_close(struct net_device *dev)
 
 	ASSERT_RTNL();
 
+	if (mac802154_is_scanning(local)) {
+		mutex_lock(&local->scan_lock);
+		mac802154_abort_scan_locked(sdata);
+		mutex_unlock(&local->scan_lock);
+	}
+
 	mutex_lock(&local->device_lock);
 
 	netif_stop_queue(dev);
