@@ -1,0 +1,345 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+/*
+ * Copyright (C) 2016 Marvell Technology Group Ltd.
+ * Copyright (C) 2021 Sartura Ltd.
+ *
+ * Device Tree file for Delta TN48M switch
+ */
+
+#include <dt-bindings/reset/delta,tn48m-reset.h>
+#include <dt-bindings/leds/common.h>
+#include <dt-bindings/gpio/gpio.h>
+#include "armada-7040.dtsi"
+
+/ {
+	model = "Delta TN48M";
+	compatible = "delta,tn48m", "marvell,armada7040",
+		     "marvell,armada-ap806-quad", "marvell,armada-ap806";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	aliases {
+		ethernet2 = &cp0_eth2;
+	};
+
+	switch-cpu {
+		status = "okay";
+		compatible = "marvell,prestera-switch-rxtx-sdma";
+	};
+
+	prestera {
+		status = "okay";
+		compatible = "marvell,prestera";
+		base-mac-provider = <&onie_eeprom>;
+
+		ports {
+			port49 {
+				prestera,port-num = <49>;
+				sfp = <&sfp49>;
+			};
+
+			port50 {
+				prestera,port-num = <50>;
+				sfp = <&sfp50>;
+			};
+
+			port51 {
+				prestera,port-num = <51>;
+				sfp = <&sfp51>;
+			};
+
+			port52 {
+				prestera,port-num = <52>;
+				sfp = <&sfp52>;
+			};
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		sys-amber {
+			gpios = <&cp0_gpio2 2 GPIO_ACTIVE_HIGH>;
+			color = <LED_COLOR_ID_AMBER>;
+			label = "system:amber";
+			default-state = "off";
+			panic-indicator;
+		};
+
+		sys-green {
+			gpios = <&cp0_gpio1 31 GPIO_ACTIVE_HIGH>;
+			color = <LED_COLOR_ID_GREEN>;
+			label = "system:green";
+			default-state = "on";
+		};
+
+		fan-amber {
+			gpios = <&cp0_gpio1 11 GPIO_ACTIVE_HIGH>;
+			color = <LED_COLOR_ID_AMBER>;
+			label = "fan:amber";
+			default-state = "off";
+		};
+
+		fan-green {
+			gpios = <&cp0_gpio1 14 GPIO_ACTIVE_HIGH>;
+			color = <LED_COLOR_ID_GREEN>;
+			label = "fan:green";
+			default-state = "on";
+		};
+
+		psu-amber {
+			gpios = <&cp0_gpio1 2 GPIO_ACTIVE_HIGH>;
+			color = <LED_COLOR_ID_AMBER>;
+			label = "psu:amber";
+			default-state = "off";
+		};
+
+		psu-green {
+			gpios = <&cp0_gpio1 3 GPIO_ACTIVE_HIGH>;
+			color = <LED_COLOR_ID_GREEN>;
+			label = "psu:green";
+			default-state = "on";
+		};
+	};
+
+	onie_eeprom: onie-eeprom {
+		status = "okay";
+		compatible = "onie,nvmem-cells";
+
+		nvmem-name = "1-00563";
+		nvmem = <&eeprom_at24>;
+	};
+
+	i2c-mux {
+		compatible = "i2c-mux-gpio";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		mux-gpios = <&cp0_gpio2 22 GPIO_ACTIVE_HIGH
+			     &cp0_gpio2 23 GPIO_ACTIVE_HIGH>;
+		i2c-parent = <&cp0_i2c1>;
+
+		i2c1_sfp49: i2c@0 {
+			reg = <0>;
+		};
+
+		i2c1_sfp50: i2c@1 {
+			reg = <1>;
+		};
+
+		i2c1_sfp51: i2c@2 {
+			reg = <2>;
+		};
+
+		i2c1_sfp52: i2c@3 {
+			reg = <3>;
+		};
+	};
+
+	sfp49: sfp-49 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c1_sfp49>;
+		los-gpio = <&sfp_los 0 GPIO_ACTIVE_HIGH>;
+		mod-def0-gpio = <&sfp_present 0 GPIO_ACTIVE_LOW>;
+		tx-disable-gpio = <&sfp_tx_disable 0 GPIO_ACTIVE_HIGH>;
+	};
+
+	sfp50: sfp-50 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c1_sfp50>;
+		los-gpio = <&sfp_los 1 GPIO_ACTIVE_HIGH>;
+		mod-def0-gpio = <&sfp_present 1 GPIO_ACTIVE_LOW>;
+		tx-disable-gpio = <&sfp_tx_disable 1 GPIO_ACTIVE_HIGH>;
+	};
+
+	sfp51: sfp-51 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c1_sfp51>;
+		los-gpio = <&sfp_los 2 GPIO_ACTIVE_HIGH>;
+		mod-def0-gpio = <&sfp_present 2 GPIO_ACTIVE_LOW>;
+		tx-disable-gpio = <&sfp_tx_disable 2 GPIO_ACTIVE_HIGH>;
+	};
+
+	sfp52: sfp-52 {
+		compatible = "sff,sfp";
+		i2c-bus = <&i2c1_sfp52>;
+		los-gpio = <&sfp_los 3 GPIO_ACTIVE_HIGH>;
+		mod-def0-gpio = <&sfp_present 3 GPIO_ACTIVE_LOW>;
+		tx-disable-gpio = <&sfp_tx_disable 3 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&uart0 {
+	status = "okay";
+	pinctrl-0 = <&uart0_pins>;
+	pinctrl-names = "default";
+};
+
+&spi0 {
+	status = "okay";
+
+	slb9670@0 {
+		compatible = "infineon,slb9670";
+		reg = <0>;
+		spi-max-frequency = <38000000>;
+	};
+};
+
+&cp0_spi0 {
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <20000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x0 0x3f0000>;
+				read-only;
+			};
+
+			partition@3f0000 {
+				label = "u-boot-env";
+				reg = <0x3f0000 0x010000>;
+			};
+
+			partition@400000 {
+				label = "ONIE";
+				reg = <0x400000 0xc00000>;
+			};
+		};
+	};
+};
+
+&i2c0 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	cpld: cpld@41 {
+		compatible = "delta,tn48m-cpld";
+		reg = <0x41>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		sfp_tx_disable: gpio@31 {
+			compatible = "delta,tn48m-gpo";
+			reg = <0x31>;
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		sfp_present: gpio@3a {
+			compatible = "delta,tn48m-gpi";
+			reg = <0x3a>;
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		sfp_los: gpio@40 {
+			compatible = "delta,tn48m-gpi";
+			reg = <0x40>;
+			gpio-controller;
+			#gpio-cells = <2>;
+		};
+
+		cpld_reset: reset-controller {
+			compatible = "delta,tn48m-reset";
+			#reset-cells = <1>;
+		};
+
+		cpldinfo {
+			compatible = "delta,cpldinfo";
+		};
+	};
+
+	psu@5a {
+		compatible = "delta,dps920ab";
+		reg = <0x5a>;
+	};
+
+	psu@5b {
+		compatible = "delta,dps920ab";
+		reg = <0x5b>;
+	};
+};
+
+&cp0_i2c0 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	eeprom_at24: at24@56 {
+		compatible = "atmel,24c64";
+		reg = <0x56>;
+	};
+
+	adt7473@2e {
+		compatible = "adi,adt7473";
+		reg = <0x2e>;
+	};
+
+	pd69200@3c {
+		compatible = "microchip,pd69200";
+		reg = <0x3c>;
+	};
+
+	tmp1075@4a {
+		compatible = "ti,tmp1075";
+		reg = <0x4a>;
+	};
+
+	tmp1075@4b {
+		compatible = "ti,tmp1075";
+		reg = <0x4b>;
+	};
+};
+
+&cp0_i2c1 {
+	status = "okay";
+	clock-frequency = <100000>;
+};
+
+&cp0_usb3_0 {
+	status = "okay";
+};
+
+&cp0_sata0 {
+	status = "okay";
+
+	sata-port@0 {
+		status = "okay";
+		phys = <&cp0_comphy1 0>;
+	};
+};
+
+&cp0_mdio {
+	status = "okay";
+
+	ethphy0: ethernet-phy@0 {
+		reg = <0>;
+	};
+};
+
+&cp0_ethernet {
+	status = "okay";
+};
+
+&cp0_eth2 {
+	status = "okay";
+	phy = <&ethphy0>;
+	phy-mode = "sgmii";
+	phys = <&cp0_comphy5 2>;
+};
+
+&cp0_pcie0 {
+	status = "okay";
+	phys = <&cp0_comphy0 0>;
+
+	dma-ranges = <0x42000000 0x0 0x00000000 0x0 0x00000000 0x0 0x40000000>;
+};
