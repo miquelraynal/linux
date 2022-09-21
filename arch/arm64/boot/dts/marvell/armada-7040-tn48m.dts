@@ -21,7 +21,7 @@
 	};
 
 	aliases {
-		ethernet2 = &cp0_eth2;
+		/* ethernet2 = &cp0_eth2; */
 	};
 
 	switch-cpu {
