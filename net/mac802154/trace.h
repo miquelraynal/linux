@@ -305,17 +305,19 @@ TRACE_EVENT(802154_drv_enter_scan_mode,
 		LOCAL_ENTRY
 		__field(u8, page)
 		__field(u32, channels)
+		__field(u32, preamble_codes)
 		__field(u8, duration)
 	),
 	TP_fast_assign(
 		LOCAL_ASSIGN;
 		__entry->page = request->page;
 		__entry->channels = request->channels;
+		__entry->preamble_codes = request->preamble_codes;
 		__entry->duration = request->duration;
 	),
-	TP_printk(LOCAL_PR_FMT ", scan, page: %d, channels: %x, duration %d",
+	TP_printk(LOCAL_PR_FMT ", scan, page: %d, channels: %x, preamble_codes: %x, duration %d",
 		  LOCAL_PR_ARG, __entry->page, __entry->channels,
-		  __entry->duration)
+		  __entry->preamble_codes, __entry->duration)
 );
 
 DEFINE_EVENT(local_only_evt4, 802154_drv_exit_scan_mode,

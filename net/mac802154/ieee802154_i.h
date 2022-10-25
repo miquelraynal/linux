@@ -58,6 +58,7 @@ struct ieee802154_local {
 
 	/* Scanning */
 	struct ieee802154_channel scan_chan;
+	u64 scan_preamble_codes;
 	struct ieee802154_beacon_req_frame scan_beacon_req;
 	struct cfg802154_scan_request __rcu *scan_req;
 	struct delayed_work scan_work;
