@@ -219,8 +219,7 @@ ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 
 		mac_pkt->skb = skb_get(skb);
 		mac_pkt->sdata = sdata;
-		mac_pkt->chan.page = sdata->local->scan_chan.page;
-		mac_pkt->chan.channel = sdata->local->scan_chan.channel;
+		ieee802154_save_chan(&mac_pkt->chan, &sdata->local->scan_chan);
 		list_add_tail(&mac_pkt->node, &sdata->local->rx_beacon_list);
 		queue_work(sdata->local->mac_wq, &sdata->local->rx_beacon_work);
 		return NET_RX_SUCCESS;

@@ -52,8 +52,7 @@ static int fakelb_hw_channel(struct ieee802154_hw *hw,
 	struct fakelb_phy *phy = hw->priv;
 
 	write_lock_bh(&fakelb_ifup_phys_lock);
-	phy->chan.page = chan->page;
-	phy->chan.channel = chan->channel;
+	ieee802154_save_chan(&phy->chan, chan);
 	write_unlock_bh(&fakelb_ifup_phys_lock);
 	return 0;
 }

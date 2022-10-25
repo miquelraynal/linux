@@ -104,8 +104,7 @@ static int hwsim_update_pib(struct ieee802154_hw *hw,
 
 	pib_old = rtnl_dereference(phy->pib);
 
-	pib->chan.page = chan->page;
-	pib->chan.channel = chan->channel;
+	ieee802154_save_chan(&pib->chan, chan);
 	pib->filt.short_addr = filt->short_addr;
 	pib->filt.pan_id = filt->pan_id;
 	pib->filt.ieee_addr = filt->ieee_addr;

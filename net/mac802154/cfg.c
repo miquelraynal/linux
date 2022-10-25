@@ -120,8 +120,7 @@ ieee802154_set_channel(struct wpan_phy *wpan_phy,
 
 	ret = drv_set_channel(local, chan);
 	if (!ret) {
-		wpan_phy->current_chan.page = chan->page;
-		wpan_phy->current_chan.channel = chan->channel;
+		ieee802154_save_chan(&wpan_phy->current_chan, chan);
 		ieee802154_configure_durations(wpan_phy, chan);
 	}
 

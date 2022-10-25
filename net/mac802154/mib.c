@@ -30,12 +30,10 @@ void mac802154_dev_set_chan(struct net_device *dev,
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
 	res = drv_set_channel(local, chan);
-	if (res) {
+	if (res)
 		pr_debug("set_channel failed\n");
-	} else {
-		local->phy->current_chan.channel = chan->channel;
-		local->phy->current_chan.page = chan->page;
-	}
+	else
+		ieee802154_save_chan(&local->phy->current_chan, chan);
 }
 
 int mac802154_get_params(struct net_device *dev,

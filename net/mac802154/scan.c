@@ -211,8 +211,7 @@ void mac802154_scan_worker(struct work_struct *work)
 	scan_req_duration = scan_req->duration;
 
 	/* Look for the next valid chan */
-	c.page = local->scan_chan.page;
-	c.channel = local->scan_chan.channel;
+	ieee802154_save_chan(&c, &local->scan_chan);
 	do {
 		ret = mac802154_scan_find_next_chan(local, scan_req, &c);
 		if (ret) {
@@ -233,8 +232,7 @@ void mac802154_scan_worker(struct work_struct *work)
 		goto end_scan;
 	}
 
-	local->scan_chan.page = c.page;
-	local->scan_chan.channel = c.channel;
+	ieee802154_save_chan(&local->scan_chan, &c);
 
 	rtnl_lock();
 	ret = drv_start(local, IEEE802154_FILTERING_3_SCAN, &local->addr_filt);
@@ -329,8 +327,7 @@ int mac802154_process_beacon(struct ieee802154_local *local,
 		chan->page, chan->channel);
 
 	memcpy(&desc.addr, src, sizeof(desc.addr));
-	desc.chan.page = chan->page;
-	desc.chan.channel = chan->channel;
+	ieee802154_save_chan(&desc.chan, chan);
 	desc.link_quality = mac_cb(skb)->lqi;
 	desc.superframe_spec = get_unaligned_le16(skb->data);
 	desc.gts_permit = bh->gts_permit;
