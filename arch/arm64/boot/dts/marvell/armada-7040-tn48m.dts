@@ -32,7 +32,6 @@
 	prestera {
 		status = "okay";
 		compatible = "marvell,prestera";
-		base-mac-provider = <&onie_eeprom>;
 
 		ports {
 			port49 {
@@ -102,14 +101,6 @@
 			label = "psu:green";
 			default-state = "on";
 		};
-	};
-
-	onie_eeprom: onie-eeprom {
-		status = "okay";
-		compatible = "onie,nvmem-cells";
-
-		nvmem-name = "1-00563";
-		nvmem = <&eeprom_at24>;
 	};
 
 	i2c-mux {
@@ -274,9 +265,18 @@
 	status = "okay";
 	clock-frequency = <100000>;
 
-	eeprom_at24: at24@56 {
+	eeprom_at24: eeprom@56 {
 		compatible = "atmel,24c64";
+		read-only;
 		reg = <0x56>;
+
+		nvmem-layout {
+			compatible = "onie,tlv-layout";
+
+			mac_address: mac-address {
+				#nvmem-cell-cells = <1>;
+			};
+		};
 	};
 
 	adt7473@2e {
