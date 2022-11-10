@@ -45,21 +45,14 @@
 		clock-names = "send_clk", "send_dly_clk", "ps_clk";
 		#address-cells = <1>;
 		#size-cells = <0>;
-		nand-ecc-engine = <&ecc_engine>;
 
 		flash@0 {
-			compatible = "spi-nand";
+			compatible = "mxicy,mx25uw51245g", "jedec,spi-nor";
 			reg = <0>;
-			nand-ecc-engine = <&spi_controller>;
-			spi-max-frequency = <50000000>;
+			spi-max-frequency = <40000000>;
 			spi-tx-bus-width = <1>;
 			spi-rx-bus-width = <1>;
 		};
-	};
-
-	ecc_engine: ecc@43c40000 {
-		compatible = "mxicy,nand-ecc-engine-rev3";
-		reg = <0x43c40000 0x10000>;
 	};
 };
 
