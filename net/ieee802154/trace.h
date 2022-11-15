@@ -100,8 +100,8 @@ TRACE_EVENT(802154_rdev_del_virtual_intf,
 );
 
 TRACE_EVENT(802154_rdev_set_channel,
-	TP_PROTO(struct wpan_phy *wpan_phy, u8 page, u8 channel),
-	TP_ARGS(wpan_phy, page, channel),
+	TP_PROTO(struct wpan_phy *wpan_phy, struct ieee802154_channel *chan),
+	TP_ARGS(wpan_phy, chan),
 	TP_STRUCT__entry(
 		WPAN_PHY_ENTRY
 		__field(u8, page)
@@ -109,8 +109,8 @@ TRACE_EVENT(802154_rdev_set_channel,
 	),
 	TP_fast_assign(
 		WPAN_PHY_ASSIGN;
-		__entry->page = page;
-		__entry->channel = channel;
+		__entry->page = chan->page;
+		__entry->channel = chan->channel;
 	),
 	TP_printk(WPAN_PHY_PR_FMT ", page: %d, channel: %d", WPAN_PHY_PR_ARG,
 		  __entry->page, __entry->channel)

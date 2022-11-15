@@ -628,19 +628,19 @@ cc2520_ed(struct ieee802154_hw *hw, u8 *level)
 }
 
 static int
-cc2520_set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+cc2520_set_channel(struct ieee802154_hw *hw, struct ieee802154_channel *chan)
 {
 	struct cc2520_private *priv = hw->priv;
 	int ret;
 
 	dev_dbg(&priv->spi->dev, "trying to set channel\n");
 
-	WARN_ON(page != 0);
-	WARN_ON(channel < CC2520_MINCHANNEL);
-	WARN_ON(channel > CC2520_MAXCHANNEL);
+	WARN_ON(chan->page != 0);
+	WARN_ON(chan->channel < CC2520_MINCHANNEL);
+	WARN_ON(chan->channel > CC2520_MAXCHANNEL);
 
 	ret = cc2520_write_register(priv, CC2520_FREQCTRL,
-				    11 + 5 * (channel - 11));
+				    11 + 5 * (chan->channel - 11));
 
 	return ret;
 }
@@ -852,7 +852,7 @@ static int cc2520_register(struct cc2520_private *priv)
 		priv->hw->phy->transmit_power = priv->hw->phy->supported.tx_powers[0];
 	}
 
-	priv->hw->phy->current_channel = 11;
+	priv->hw->phy->current_chan.channel = 11;
 
 	dev_vdbg(&priv->spi->dev, "registered cc2520\n");
 	ret = ieee802154_register_hw(priv->hw);

@@ -57,8 +57,7 @@ struct ieee802154_local {
 	struct hrtimer ifs_timer;
 
 	/* Scanning */
-	u8 scan_page;
-	u8 scan_channel;
+	struct ieee802154_channel scan_chan;
 	struct ieee802154_beacon_req_frame scan_beacon_req;
 	struct cfg802154_scan_request __rcu *scan_req;
 	struct delayed_work scan_work;
@@ -238,7 +237,8 @@ void ieee802154_release_queue(struct ieee802154_local *local);
 void ieee802154_disable_queue(struct ieee802154_local *local);
 
 /* MIB callbacks */
-void mac802154_dev_set_page_channel(struct net_device *dev, u8 page, u8 chan);
+void mac802154_dev_set_chan(struct net_device *dev,
+			    struct ieee802154_channel *chan);
 
 int mac802154_get_params(struct net_device *dev,
 			 struct ieee802154_llsec_params *params);
@@ -283,7 +283,7 @@ int mac802154_abort_scan_locked(struct ieee802154_local *local,
 				struct ieee802154_sub_if_data *sdata);
 int mac802154_process_beacon(struct ieee802154_local *local,
 			     struct sk_buff *skb,
-			     u8 page, u8 channel);
+			     struct ieee802154_channel *chan);
 void mac802154_rx_beacon_worker(struct work_struct *work);
 
 static inline bool mac802154_is_scanning(struct ieee802154_local *local)

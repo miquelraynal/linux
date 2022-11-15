@@ -23,7 +23,7 @@
 
 static int mac802154_mlme_start_req(struct net_device *dev,
 				    struct ieee802154_addr *addr,
-				    u8 channel, u8 page,
+				    struct ieee802154_channel *chan,
 				    u8 bcn_ord, u8 sf_ord,
 				    u8 pan_coord, u8 blx,
 				    u8 coord_realign)
@@ -37,7 +37,7 @@ static int mac802154_mlme_start_req(struct net_device *dev,
 
 	dev->ieee802154_ptr->pan_id = addr->pan_id;
 	dev->ieee802154_ptr->short_addr = addr->short_addr;
-	mac802154_dev_set_page_channel(dev, page, channel);
+	mac802154_dev_set_chan(dev, chan);
 
 	params.pan_id = addr->pan_id;
 	changed |= IEEE802154_LLSEC_PARAM_PAN_ID;

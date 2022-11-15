@@ -490,7 +490,7 @@ mcr20a_ed(struct ieee802154_hw *hw, u8 *level)
 }
 
 static int
-mcr20a_set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+mcr20a_set_channel(struct ieee802154_hw *hw, struct ieee802154_channel *chan)
 {
 	struct mcr20a_local *lp = hw->priv;
 	int ret;
@@ -498,14 +498,14 @@ mcr20a_set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 	dev_dbg(printdev(lp), "%s\n", __func__);
 
 	/* freqency = ((PLL_INT+64) + (PLL_FRAC/65536)) * 32 MHz */
-	ret = regmap_write(lp->regmap_dar, DAR_PLL_INT0, PLL_INT[channel - 11]);
+	ret = regmap_write(lp->regmap_dar, DAR_PLL_INT0, PLL_INT[chan->channel - 11]);
 	if (ret)
 		return ret;
 	ret = regmap_write(lp->regmap_dar, DAR_PLL_FRAC0_LSB, 0x00);
 	if (ret)
 		return ret;
 	ret = regmap_write(lp->regmap_dar, DAR_PLL_FRAC0_MSB,
-			   PLL_FRAC[channel - 11]);
+			   PLL_FRAC[chan->channel - 11]);
 	if (ret)
 		return ret;
 
@@ -999,9 +999,9 @@ static void mcr20a_hw_setup(struct mcr20a_local *lp)
 	phy->cca.mode = NL802154_CCA_ENERGY;
 
 	phy->supported.channels[0] = MCR20A_VALID_CHANNELS;
-	phy->current_page = 0;
+	phy->current_chan.page = 0;
 	/* MCR20A default reset value */
-	phy->current_channel = 20;
+	phy->current_chan.channel = 20;
 	phy->supported.tx_powers = mcr20a_powers;
 	phy->supported.tx_powers_size = ARRAY_SIZE(mcr20a_powers);
 	phy->cca_ed_level = phy->supported.cca_ed_levels[75];

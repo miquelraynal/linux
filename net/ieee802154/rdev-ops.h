@@ -73,12 +73,13 @@ rdev_del_virtual_intf(struct cfg802154_registered_device *rdev,
 }
 
 static inline int
-rdev_set_channel(struct cfg802154_registered_device *rdev, u8 page, u8 channel)
+rdev_set_channel(struct cfg802154_registered_device *rdev,
+		 struct ieee802154_channel *chan)
 {
 	int ret;
 
-	trace_802154_rdev_set_channel(&rdev->wpan_phy, page, channel);
-	ret = rdev->ops->set_channel(&rdev->wpan_phy, page, channel);
+	trace_802154_rdev_set_channel(&rdev->wpan_phy, chan);
+	ret = rdev->ops->set_channel(&rdev->wpan_phy, chan);
 	trace_802154_rdev_return_int(&rdev->wpan_phy, ret);
 	return ret;
 }

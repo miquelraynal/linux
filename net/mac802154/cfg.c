@@ -103,26 +103,27 @@ ieee802154_del_iface(struct wpan_phy *wpan_phy, struct wpan_dev *wpan_dev)
 }
 
 static int
-ieee802154_set_channel(struct wpan_phy *wpan_phy, u8 page, u8 channel)
+ieee802154_set_channel(struct wpan_phy *wpan_phy,
+		       struct ieee802154_channel *chan)
 {
 	struct ieee802154_local *local = wpan_phy_priv(wpan_phy);
 	int ret;
 
 	ASSERT_RTNL();
 
-	if (wpan_phy->current_page == page &&
-	    wpan_phy->current_channel == channel)
+	if (wpan_phy->current_chan.page == chan->page &&
+	    wpan_phy->current_chan.channel == chan->channel)
 		return 0;
 
 	/* Refuse to change channels during scanning or beaconing */
 	if (mac802154_is_scanning(local) || mac802154_is_beaconing(local))
 		return -EBUSY;
 
-	ret = drv_set_channel(local, page, channel);
+	ret = drv_set_channel(local, chan);
 	if (!ret) {
-		wpan_phy->current_page = page;
-		wpan_phy->current_channel = channel;
-		ieee802154_configure_durations(wpan_phy, page, channel);
+		wpan_phy->current_chan.page = chan->page;
+		wpan_phy->current_chan.channel = chan->channel;
+		ieee802154_configure_durations(wpan_phy, chan);
 	}
 
 	return ret;

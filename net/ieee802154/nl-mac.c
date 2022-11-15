@@ -174,6 +174,7 @@ int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net_device *dev;
 	struct ieee802154_addr addr;
+	struct ieee802154_channel chan = {};
 	u8 page;
 	int ret = -EOPNOTSUPP;
 
@@ -207,9 +208,9 @@ int ieee802154_associate_req(struct sk_buff *skb, struct genl_info *info)
 	else
 		page = 0;
 
-	ret = ieee802154_mlme_ops(dev)->assoc_req(dev, &addr,
-			nla_get_u8(info->attrs[IEEE802154_ATTR_CHANNEL]),
-			page,
+	chan.page = page;
+	chan.channel = nla_get_u8(info->attrs[IEEE802154_ATTR_CHANNEL]);
+	ret = ieee802154_mlme_ops(dev)->assoc_req(dev, &addr, &chan,
 			nla_get_u8(info->attrs[IEEE802154_ATTR_CAPABILITY]));
 
 out:
@@ -296,6 +297,7 @@ int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 {
 	struct net_device *dev;
 	struct ieee802154_addr addr;
+	struct ieee802154_channel chan = {};
 
 	u8 channel, bcn_ord, sf_ord;
 	u8 page;
@@ -350,7 +352,9 @@ int ieee802154_start_req(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	rtnl_lock();
-	ret = ieee802154_mlme_ops(dev)->start_req(dev, &addr, channel, page,
+	chan.page = page;
+	chan.channel = channel;
+	ret = ieee802154_mlme_ops(dev)->start_req(dev, &addr, &chan,
 		bcn_ord, sf_ord, pan_coord, blx, coord_realign);
 	rtnl_unlock();
 

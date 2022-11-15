@@ -45,7 +45,7 @@ struct at86rf2xx_chip_data {
 	u16 t_p_ack;
 	int rssi_base_val;
 
-	int (*set_channel)(struct at86rf230_local *, u8, u8);
+	int (*set_channel)(struct at86rf230_local *, struct ieee802154_channel *);
 	int (*set_txpower)(struct at86rf230_local *, s32);
 };
 
@@ -944,9 +944,10 @@ at86rf230_stop(struct ieee802154_hw *hw)
 }
 
 static int
-at86rf23x_set_channel(struct at86rf230_local *lp, u8 page, u8 channel)
+at86rf23x_set_channel(struct at86rf230_local *lp,
+		      struct ieee802154_channel *chan)
 {
-	return at86rf230_write_subreg(lp, SR_CHANNEL, channel);
+	return at86rf230_write_subreg(lp, SR_CHANNEL, chan->channel);
 }
 
 #define AT86RF2XX_MAX_ED_LEVELS 0xF
@@ -999,18 +1000,18 @@ at86rf212_update_cca_ed_level(struct at86rf230_local *lp, int rssi_base_val)
 }
 
 static int
-at86rf212_set_channel(struct at86rf230_local *lp, u8 page, u8 channel)
+at86rf212_set_channel(struct at86rf230_local *lp, struct ieee802154_channel *chan)
 {
 	int rc;
 
-	if (channel == 0)
+	if (chan->channel == 0)
 		rc = at86rf230_write_subreg(lp, SR_SUB_MODE, 0);
 	else
 		rc = at86rf230_write_subreg(lp, SR_SUB_MODE, 1);
 	if (rc < 0)
 		return rc;
 
-	if (page == 0) {
+	if (chan->page == 0) {
 		rc = at86rf230_write_subreg(lp, SR_BPSK_QPSK, 0);
 		lp->data->rssi_base_val = -100;
 	} else {
@@ -1024,16 +1025,16 @@ at86rf212_set_channel(struct at86rf230_local *lp, u8 page, u8 channel)
 	if (rc < 0)
 		return rc;
 
-	return at86rf230_write_subreg(lp, SR_CHANNEL, channel);
+	return at86rf230_write_subreg(lp, SR_CHANNEL, chan->channel);
 }
 
 static int
-at86rf230_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+at86rf230_channel(struct ieee802154_hw *hw, struct ieee802154_channel *chan)
 {
 	struct at86rf230_local *lp = hw->priv;
 	int rc;
 
-	rc = lp->data->set_channel(lp, page, channel);
+	rc = lp->data->set_channel(lp, chan);
 	/* Wait for PLL */
 	usleep_range(lp->data->t_channel_switch,
 		     lp->data->t_channel_switch + 10);
@@ -1472,7 +1473,7 @@ at86rf230_detect_device(struct at86rf230_local *lp)
 		chip = "at86rf231";
 		lp->data = &at86rf231_data;
 		lp->hw->phy->supported.channels[0] = 0x7FFF800;
-		lp->hw->phy->current_channel = 11;
+		lp->hw->phy->current_chan.channel = 11;
 		lp->hw->phy->supported.tx_powers = at86rf231_powers;
 		lp->hw->phy->supported.tx_powers_size = ARRAY_SIZE(at86rf231_powers);
 		lp->hw->phy->supported.cca_ed_levels = at86rf231_ed_levels;
@@ -1484,7 +1485,7 @@ at86rf230_detect_device(struct at86rf230_local *lp)
 		lp->hw->flags |= IEEE802154_HW_LBT;
 		lp->hw->phy->supported.channels[0] = 0x00007FF;
 		lp->hw->phy->supported.channels[2] = 0x00007FF;
-		lp->hw->phy->current_channel = 5;
+		lp->hw->phy->current_chan.channel = 5;
 		lp->hw->phy->supported.lbt = NL802154_SUPPORTED_BOOL_BOTH;
 		lp->hw->phy->supported.tx_powers = at86rf212_powers;
 		lp->hw->phy->supported.tx_powers_size = ARRAY_SIZE(at86rf212_powers);
@@ -1495,7 +1496,7 @@ at86rf230_detect_device(struct at86rf230_local *lp)
 		chip = "at86rf233";
 		lp->data = &at86rf233_data;
 		lp->hw->phy->supported.channels[0] = 0x7FFF800;
-		lp->hw->phy->current_channel = 13;
+		lp->hw->phy->current_chan.channel = 13;
 		lp->hw->phy->supported.tx_powers = at86rf233_powers;
 		lp->hw->phy->supported.tx_powers_size = ARRAY_SIZE(at86rf233_powers);
 		lp->hw->phy->supported.cca_ed_levels = at86rf233_ed_levels;

@@ -629,20 +629,21 @@ static void mrf24j40_stop(struct ieee802154_hw *hw)
 			   BIT_TXNIE | BIT_RXIE, BIT_TXNIE | BIT_RXIE);
 }
 
-static int mrf24j40_set_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+static int mrf24j40_set_channel(struct ieee802154_hw *hw,
+				struct ieee802154_channel *chan)
 {
 	struct mrf24j40 *devrec = hw->priv;
 	u8 val;
 	int ret;
 
-	dev_dbg(printdev(devrec), "Set Channel %d\n", channel);
+	dev_dbg(printdev(devrec), "Set Channel %d\n", chan->channel);
 
-	WARN_ON(page != 0);
-	WARN_ON(channel < MRF24J40_CHAN_MIN);
-	WARN_ON(channel > MRF24J40_CHAN_MAX);
+	WARN_ON(chan->page != 0);
+	WARN_ON(chan->channel < MRF24J40_CHAN_MIN);
+	WARN_ON(chan->channel > MRF24J40_CHAN_MAX);
 
 	/* Set Channel TODO */
-	val = (channel - 11) << RFCON0_CH_SHIFT | RFOPT_RECOMMEND;
+	val = (chan->channel - 11) << RFCON0_CH_SHIFT | RFOPT_RECOMMEND;
 	ret = regmap_update_bits(devrec->regmap_long, REG_RFCON0,
 				 RFCON0_CH_MASK, val);
 	if (ret)
@@ -1236,7 +1237,7 @@ mrf24j40_setup_irq_spi_messages(struct mrf24j40 *devrec)
 static void  mrf24j40_phy_setup(struct mrf24j40 *devrec)
 {
 	ieee802154_random_extended_addr(&devrec->hw->phy->perm_extended_addr);
-	devrec->hw->phy->current_channel = 11;
+	devrec->hw->phy->current_chan.channel = 11;
 
 	/* mrf24j40 supports max_minbe 0 - 3 */
 	devrec->hw->phy->supported.max_minbe = 3;

@@ -2042,16 +2042,12 @@ static int ca8210_get_ed(struct ieee802154_hw *hw, u8 *level)
  * ca8210_set_channel() - Sets the current operating 802.15.4 channel of the
  *                        ca8210
  * @hw:       ieee802154_hw of target ca8210
- * @page:     Channel page to set
- * @channel:  Channel number to set
+ * @chan:     Channel information
  *
  * Return: 0 or linux error code
  */
-static int ca8210_set_channel(
-	struct ieee802154_hw  *hw,
-	u8                     page,
-	u8                     channel
-)
+static int ca8210_set_channel(struct ieee802154_hw  *hw,
+			      struct ieee802154_channel *chan)
 {
 	u8 status;
 	struct ca8210_priv *priv = hw->priv;
@@ -2060,7 +2056,7 @@ static int ca8210_set_channel(
 		PHY_CURRENT_CHANNEL,
 		0,
 		1,
-		&channel,
+		&chan->channel,
 		priv->spi
 	);
 	if (status) {
@@ -2926,8 +2922,8 @@ static void ca8210_hw_setup(struct ieee802154_hw *ca8210_hw)
 	ca8210_hw->phy->supported.tx_powers = ca8210_tx_powers;
 	ca8210_hw->phy->supported.cca_ed_levels_size = CA8210_MAX_ED_LEVELS;
 	ca8210_hw->phy->supported.cca_ed_levels = ca8210_ed_levels;
-	ca8210_hw->phy->current_channel = 18;
-	ca8210_hw->phy->current_page = 0;
+	ca8210_hw->phy->current_chan.channel = 18;
+	ca8210_hw->phy->current_chan.page = 0;
 	ca8210_hw->phy->transmit_power = 800;
 	ca8210_hw->phy->cca.mode = NL802154_CCA_ENERGY_CARRIER;
 	ca8210_hw->phy->cca.opt = NL802154_CCA_OPT_ENERGY_CARRIER_AND;

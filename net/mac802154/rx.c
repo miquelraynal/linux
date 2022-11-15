@@ -40,7 +40,7 @@ void mac802154_rx_beacon_worker(struct work_struct *work)
 	if (!mac_pkt)
 		return;
 
-	mac802154_process_beacon(local, mac_pkt->skb, mac_pkt->page, mac_pkt->channel);
+	mac802154_process_beacon(local, mac_pkt->skb, &mac_pkt->chan);
 
 	list_del(&mac_pkt->node);
 	kfree_skb(mac_pkt->skb);
@@ -219,8 +219,8 @@ ieee802154_subif_frame(struct ieee802154_sub_if_data *sdata,
 
 		mac_pkt->skb = skb_get(skb);
 		mac_pkt->sdata = sdata;
-		mac_pkt->page = sdata->local->scan_page;
-		mac_pkt->channel = sdata->local->scan_channel;
+		mac_pkt->chan.page = sdata->local->scan_chan.page;
+		mac_pkt->chan.channel = sdata->local->scan_chan.channel;
 		list_add_tail(&mac_pkt->node, &sdata->local->rx_beacon_list);
 		queue_work(sdata->local->mac_wq, &sdata->local->rx_beacon_work);
 		return NET_RX_SUCCESS;

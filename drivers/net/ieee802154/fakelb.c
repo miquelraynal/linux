@@ -30,8 +30,7 @@ static DEFINE_RWLOCK(fakelb_ifup_phys_lock);
 struct fakelb_phy {
 	struct ieee802154_hw *hw;
 
-	u8 page;
-	u8 channel;
+	struct ieee802154_channel chan;
 
 	bool suspended;
 
@@ -47,13 +46,14 @@ static int fakelb_hw_ed(struct ieee802154_hw *hw, u8 *level)
 	return 0;
 }
 
-static int fakelb_hw_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
+static int fakelb_hw_channel(struct ieee802154_hw *hw,
+			     struct ieee802154_channel *chan)
 {
 	struct fakelb_phy *phy = hw->priv;
 
 	write_lock_bh(&fakelb_ifup_phys_lock);
-	phy->page = page;
-	phy->channel = channel;
+	phy->chan.page = chan->page;
+	phy->chan.channel = chan->channel;
 	write_unlock_bh(&fakelb_ifup_phys_lock);
 	return 0;
 }
@@ -68,8 +68,8 @@ static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 		if (current_phy == phy)
 			continue;
 
-		if (current_phy->page == phy->page &&
-		    current_phy->channel == phy->channel) {
+		if (current_phy->chan.page == phy->chan.page &&
+		    current_phy->chan.channel == phy->chan.channel) {
 			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
 
 			if (newskb)
@@ -170,8 +170,8 @@ static int fakelb_add_one(struct device *dev)
 
 	ieee802154_random_extended_addr(&hw->phy->perm_extended_addr);
 	/* fake phy channel 13 as default */
-	hw->phy->current_channel = 13;
-	phy->channel = hw->phy->current_channel;
+	hw->phy->current_chan.channel = 13;
+	phy->chan.channel = hw->phy->current_chan.channel;
 
 	hw->flags = IEEE802154_HW_PROMISCUOUS;
 	hw->parent = dev;

@@ -230,14 +230,15 @@ static inline void drv_stop(struct ieee802154_local *local)
 }
 
 static inline int
-drv_set_channel(struct ieee802154_local *local, u8 page, u8 channel)
+drv_set_channel(struct ieee802154_local *local,
+		struct ieee802154_channel *chan)
 {
 	int ret;
 
 	might_sleep();
 
-	trace_802154_drv_set_channel(local, page, channel);
-	ret = local->ops->set_channel(&local->hw, page, channel);
+	trace_802154_drv_set_channel(local, chan);
+	ret = local->ops->set_channel(&local->hw, chan);
 	trace_802154_drv_return_int(local, ret);
 	return ret;
 }
