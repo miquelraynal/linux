@@ -24,38 +24,6 @@
 		/* ethernet2 = &cp0_eth2; */
 	};
 
-	switch-cpu {
-		status = "okay";
-		compatible = "marvell,prestera-switch-rxtx-sdma";
-	};
-
-	prestera {
-		status = "okay";
-		compatible = "marvell,prestera";
-
-		ports {
-			port49 {
-				prestera,port-num = <49>;
-				sfp = <&sfp49>;
-			};
-
-			port50 {
-				prestera,port-num = <50>;
-				sfp = <&sfp50>;
-			};
-
-			port51 {
-				prestera,port-num = <51>;
-				sfp = <&sfp51>;
-			};
-
-			port52 {
-				prestera,port-num = <52>;
-				sfp = <&sfp52>;
-			};
-		};
-	};
-
 	leds {
 		compatible = "gpio-leds";
 
@@ -344,4 +312,40 @@
 	phys = <&cp0_comphy0 0>;
 
 	dma-ranges = <0x42000000 0x0 0x00000000 0x0 0x00000000 0x0 0x40000000>;
+
+	pci@0,0 {
+		device_type = "pci";
+		reg = <0x0 0x0 0x0 0x0 0x0>;
+		ranges;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		bus-range = <0x0 0x0>;
+
+		switch@0,0 {
+			reg = <0x0 0x0 0x0 0x0 0x0>;
+			compatible = "pci11ab,c80c";
+
+			ports {
+				port49 {
+					prestera,port-num = <49>;
+					sfp = <&sfp49>;
+				};
+
+				port50 {
+					prestera,port-num = <50>;
+					sfp = <&sfp50>;
+				};
+
+				port51 {
+					prestera,port-num = <51>;
+					sfp = <&sfp51>;
+				};
+
+				port52 {
+					prestera,port-num = <52>;
+					sfp = <&sfp52>;
+				};
+			};
+		};
+	};
 };
