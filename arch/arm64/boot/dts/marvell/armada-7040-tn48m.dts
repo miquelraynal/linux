@@ -335,6 +335,8 @@
 	phy = <&ethphy0>;
 	phy-mode = "sgmii";
 	phys = <&cp0_comphy5 2>;
+	nvmem-cells = <&mac_address 0>;
+	nvmem-cell-names = "mac-address";
 };
 
 &cp0_pcie0 {
