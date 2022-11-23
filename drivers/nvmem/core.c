@@ -694,6 +694,7 @@ static int nvmem_validate_keepouts(struct nvmem_device *nvmem)
 
 static int nvmem_add_cells_from_of(struct nvmem_device *nvmem)
 {
+	struct nvmem_layout *layout = nvmem->layout;
 	struct device *dev = &nvmem->dev;
 	struct nvmem_cell_entry *cell;
 	struct device_node *child;
@@ -729,6 +730,9 @@ static int nvmem_add_cells_from_of(struct nvmem_device *nvmem)
 		}
 
 		info.np = of_node_get(child);
+
+		if (layout && layout->fixup_cell_info)
+			layout->fixup_cell_info(nvmem, layout, &info);
 
 		ret = nvmem_add_one_cell(nvmem, &info);
 		kfree(info.name);
