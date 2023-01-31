@@ -312,11 +312,15 @@
 };
 
 &spi0 {
+	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&spi0_pins &spi0_cs_pins>;
 	cs-gpios = <&gpio 8 1>, <&gpio 7 1>;
+	#address-cells = <1>;
+	#size-cells = <0>;
 
 	spidev0: spidev@0{
+		status = "disabled";
 		compatible = "spidev";
 		reg = <0>;	/* CE0 */
 		#address-cells = <1>;
@@ -325,15 +329,38 @@
 	};
 
 	spidev1: spidev@1{
+		status = "disabled";
 		compatible = "spidev";
 		reg = <1>;	/* CE1 */
 		#address-cells = <1>;
 		#size-cells = <0>;
 		spi-max-frequency = <125000000>;
 	};
+
+	dw3000: dw3000@0 {
+		compatible = "decawave,dw3000";
+		reg = <0>; /* CE0 */
+		pinctrl-names = "default";
+		pinctrl-0 = <&dw3000_pins>;
+		interrupt-parent = <&gpio>;
+		interrupts = <25 4>; /*IRQ_TYPE_LEVEL_HIGH*/
+		spi-max-frequency = <10000000>;
+		reset-gpio = <&gpio 24 4>; /* OPEN_DRAIN */
+		decawave,eui64 = /bits/ 64 <0>;
+		decawave,panid = /bits/ 16 <0>;
+		status = "okay";
+	};
 };
 
 &gpio {
+	dw3000_pins: dw3000_pins {
+		/* Wakeup, IRQ, RST on GPIO4, GPIO25 and GPIO24 */
+		brcm,pins = <4 25 24>;
+		brcm,function = <0x0 0x0 0x0>;
+		/* Pull up/down config: 0: disabled, 1: down, 2: up */
+		brcm,pull = <0 1 2>;
+	};
+
 	spi0_pins: spi0_pins {
 		brcm,pins = <9 10 11>;
 		brcm,function = <BCM2835_FSEL_ALT0>;
