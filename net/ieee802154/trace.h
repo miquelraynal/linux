@@ -308,16 +308,19 @@ TRACE_EVENT(802154_rdev_trigger_scan,
 		WPAN_PHY_ENTRY
 		__field(u8, page)
 		__field(u32, channels)
+		__field(u32, preamble_codes)
 		__field(u8, duration)
 	),
 	TP_fast_assign(
 		WPAN_PHY_ASSIGN;
 		__entry->page = request->page;
 		__entry->channels = request->channels;
+		__entry->preamble_codes = request->preamble_codes;
 		__entry->duration = request->duration;
 	),
-	TP_printk(WPAN_PHY_PR_FMT ", scan, page: %d, channels: %x, duration %d",
-		  WPAN_PHY_PR_ARG, __entry->page, __entry->channels, __entry->duration)
+	TP_printk(WPAN_PHY_PR_FMT ", scan, page: %d, channels: %x, preamble codes: %x, duration %d",
+		  WPAN_PHY_PR_ARG, __entry->page, __entry->channels,
+		  __entry->preamble_codes, __entry->duration)
 );
 
 TRACE_EVENT(802154_rdev_send_beacons,

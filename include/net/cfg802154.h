@@ -502,6 +502,8 @@ struct cfg802154_scan_request {
 	enum nl802154_scan_types type;
 	u8 page;
 	u32 channels;
+	u64 preamble_codes;
+	u8 mean_prf;
 	u8 duration;
 	struct wpan_dev *wpan_dev;
 	struct wpan_phy *wpan_phy;

@@ -175,6 +175,11 @@ cfg802154_get_dev_from_info(struct net *netns, struct genl_info *info)
 	return __cfg802154_rdev_from_attrs(netns, info->attrs);
 }
 
+static struct netlink_range_validation ieee802154_preamble_codes_range = {
+	.min = 0,
+	.max = GENMASK_ULL(IEEE802154_MAX_PREAMBLE_CODE, 0),
+};
+
 /* policy for the attributes */
 static const struct nla_policy nl802154_policy[NL802154_ATTR_MAX+1] = {
 	[NL802154_ATTR_WPAN_PHY] = { .type = NLA_U32 },
@@ -225,8 +230,10 @@ static const struct nla_policy nl802154_policy[NL802154_ATTR_MAX+1] = {
 		NLA_POLICY_RANGE(NLA_U8, NL802154_SCAN_ED, NL802154_SCAN_RIT_PASSIVE),
 	[NL802154_ATTR_SCAN_CHANNELS] =
 		NLA_POLICY_MASK(NLA_U32, GENMASK(IEEE802154_MAX_CHANNEL, 0)),
-	[NL802154_ATTR_SCAN_PREAMBLE_CODES] = { .type = NLA_REJECT },
-	[NL802154_ATTR_SCAN_MEAN_PRF] = { .type = NLA_REJECT },
+	[NL802154_ATTR_SCAN_PREAMBLE_CODES] =
+		NLA_POLICY_FULL_RANGE(NLA_U64, &ieee802154_preamble_codes_range),
+	[NL802154_ATTR_SCAN_MEAN_PRF] =
+		NLA_POLICY_MAX(NLA_U8, NL802154_MEAN_PRF_111090KHZ),
 	[NL802154_ATTR_SCAN_DURATION] =
 		NLA_POLICY_MAX(NLA_U8, IEEE802154_MAX_SCAN_DURATION),
 	[NL802154_ATTR_SCAN_DONE_REASON] =
@@ -1501,6 +1508,18 @@ static int nl802154_trigger_scan(struct sk_buff *skb, struct genl_info *info)
 		request->channels = nla_get_u32(info->attrs[NL802154_ATTR_SCAN_CHANNELS]);
 	else
 		request->channels = wpan_phy->supported.channels[request->page];
+
+	/* Scan all supported preamble codes by default */
+	if (info->attrs[NL802154_ATTR_SCAN_PREAMBLE_CODES])
+		request->preamble_codes = nla_get_u32(info->attrs[NL802154_ATTR_SCAN_PREAMBLE_CODES]);
+	else
+		request->preamble_codes = 0;
+
+	/* This will fallback to the current setting or as a last ressort a mandatory value */
+	if (info->attrs[NL802154_ATTR_SCAN_MEAN_PRF])
+		request->mean_prf = nla_get_u32(info->attrs[NL802154_ATTR_SCAN_MEAN_PRF]);
+	else
+		request->mean_prf = 0;
 
 	/* Use maximum duration order by default */
 	if (info->attrs[NL802154_ATTR_SCAN_DURATION])
