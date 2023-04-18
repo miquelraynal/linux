@@ -50,7 +50,7 @@ ieee802154_alloc_hw(size_t priv_data_len, const struct ieee802154_ops *ops)
 	struct ieee802154_local *local;
 	size_t priv_size;
 
-	if (WARN_ON(!ops || !(ops->xmit_async || ops->xmit_sync) || !ops->ed ||
+	if (WARN_ON(!ops || !(ops->xmit_async || ops->xmit_sync) ||
 		    !ops->start || !ops->stop || !ops->set_channel))
 		return NULL;
 
