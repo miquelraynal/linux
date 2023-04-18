@@ -127,7 +127,7 @@ static int atusb_get_and_clear_error(struct atusb *atusb)
 
 /* ----- skb allocation ---------------------------------------------------- */
 
-#define MAX_PSDU	127
+#define MAX_PSDU	IEEE802154_MTU
 #define MAX_RX_XFER	(1 + MAX_PSDU + 2 + 1)	/* PHR+PSDU+CRC+LQI */
 
 #define SKB_ATUSB(skb)	(*(struct atusb **)(skb)->cb)

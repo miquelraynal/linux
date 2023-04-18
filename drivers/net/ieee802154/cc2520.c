@@ -1019,7 +1019,7 @@ static int cc2520_hw_init(struct cc2520_private *priv)
 	if (ret)
 		goto err_ret;
 
-	ret = cc2520_write_register(priv, CC2520_FIFOPCTRL, 127);
+	ret = cc2520_write_register(priv, CC2520_FIFOPCTRL, IEEE802154_MTU);
 	if (ret)
 		goto err_ret;
 

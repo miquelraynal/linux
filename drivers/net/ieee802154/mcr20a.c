@@ -123,7 +123,7 @@ static const struct reg_sequence mar20a_iar_overwrites[] = {
 };
 
 #define MCR20A_VALID_CHANNELS (0x07FFF800)
-#define MCR20A_MAX_BUF		(127)
+#define MCR20A_MAX_BUF		IEEE802154_MTU
 
 #define printdev(X) (&X->spi->dev)
 

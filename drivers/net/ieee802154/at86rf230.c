@@ -49,7 +49,7 @@ struct at86rf2xx_chip_data {
 	int (*set_txpower)(struct at86rf230_local *, s32);
 };
 
-#define AT86RF2XX_MAX_BUF		(127 + 3)
+#define AT86RF2XX_MAX_BUF		(IEEE802154_MTU + 3)
 /* tx retries to access the TX_ON state
  * if it's above then force change will be started.
  *
