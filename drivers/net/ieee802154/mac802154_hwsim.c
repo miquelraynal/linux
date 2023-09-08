@@ -936,6 +936,7 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 	hw->phy->supported.prfs = NL802154_MEAN_PRF_4030KHZ |
 				  NL802154_MEAN_PRF_16100KHZ |
 				  NL802154_MEAN_PRF_62890KHZ;
+	// TODO: Fill the supported pcodes
 	/* 750 MHz O-QPSK 802.15.4c-2009 */
 	hw->phy->supported.channels[5] |= 0xf;
 	/* 750 MHz MPSK 802.15.4c-2009 */
