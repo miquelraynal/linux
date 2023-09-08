@@ -176,10 +176,61 @@ static u64 ieee802154_uwb_default_codes(struct wpan_phy *phy, int channel)
 	return supported;
 }
 
+static int wpan_phy_sanity_checks(struct wpan_phy *phy)
+{
+	unsigned long uwb_chans = phy->supported.channels[4];
+	u64 uwb_pcodes;
+	unsigned int chan, pcode;
+
+	if (!uwb_chans)
+		return 0;
+
+	for_each_set_bit(chan, &uwb_chans, IEEE802154_MAX_UWB_CHANNEL) {
+		if (!ieee802154_uwb_supported_codes(phy, chan)) {
+			dev_err(&phy->dev,
+				"Missing UWB channel %d preamble code list\n", chan);
+			return -EINVAL;
+		}
+
+		if ((ieee802154_uwb_supported_codes(phy, chan) &
+		     ieee802154_uwb_default_codes(phy, chan)) !=
+		    ieee802154_uwb_supported_codes(phy, chan)) {
+			dev_err(&phy->dev,
+				"Wrong UWB channel %d preamble code list\n", chan);
+			return -EINVAL;
+		}
+
+		uwb_pcodes = ieee802154_uwb_supported_codes(phy, chan);
+		for_each_set_bit(pcode, (unsigned long *)&uwb_pcodes,
+				 IEEE802154_MAX_PREAMBLE_CODE) {
+			if (!ieee802154_uwb_supported_prfs(phy)) {
+				dev_err(&phy->dev,
+					"Missing UWB channel %d preamble code %d PRF list\n",
+					chan, pcode);
+				return -EINVAL;
+			}
+
+			if (!(ieee802154_uwb_supported_prfs(phy) &
+			      ieee802154_uwb_default_prfs(pcode))) {
+				dev_err(&phy->dev,
+					"Wrong UWB channel %d preamble code %d PRF list\n",
+					chan, pcode);
+				return -EINVAL;
+			}
+		}
+	}
+
+	return 0;
+}
+
 int wpan_phy_register(struct wpan_phy *phy)
 {
 	struct cfg802154_registered_device *rdev = wpan_phy_to_rdev(phy);
 	int ret;
+
+	ret = wpan_phy_sanity_checks(phy);
+	if (ret)
+		return ret;
 
 	rtnl_lock();
 	ret = device_add(&phy->dev);
