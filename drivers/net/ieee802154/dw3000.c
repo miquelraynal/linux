@@ -11,6 +11,8 @@
 
 #define DEBUG
 
+/* TODO: Handle concurrency */
+
 /* TODO: This is currently a hack to switch between E0 and D0,
  * we need to decide whether supporting D0 chips mainline is relevant or not.
  */
@@ -252,12 +254,36 @@
 #elif defined D0
 #define     DW3000_PLL_CAL_EN BIT(1)
 #endif
+#define   DW3000_XTAL_OFF 0x14
 
 #define DW3000_AON_FID 0x0a
 #define   DW3000_AON_DIG_CFG 0x0
 #define   DW3000_AON_CTRL 0x4
 #define     DW3000_AON_CTRL_SAVE BIT(1)
 #define   DW3000_AON_CFGAON_CFG 0x14
+
+#define DW3000_OTP_FID 0x0b
+#define   DW3000_OTP_ADDR_OFF 0x4
+#define     DW3000_OTP_ADDR(addr) FIELD_PREP(GENMASK(10, 0), (addr))
+#define     DW3000_OTP_ADDR_LDO_TUNE_LO 0x4
+#define     DW3000_OTP_ADDR_LDO_TUNE_HI 0x5
+#define     DW3000_OTP_ADDR_BIAS_TUNE 0xa
+#define       DW3000_OTP_BIAS_TUNE(bias) FIELD_GET(GENMASK(20, 16), (bias))
+#define     DW3000_OTP_ADDR_XTAL_TRIM 0x1e
+#define       DW3000_XTAL_TRIM(xtal_trim) FIELD_GET(GENMASK(5, 0), (xtal_trim))
+#define       DW3000_XTAL_TRIM_DEFAULT GENMASK(4, 0)
+#define     DW3000_OTP_ADDR_DGC_TUNE 0x20
+#define       DW3000_OTP_DGC_CFG0 0x10000240
+#define     DW3000_OTP_ADDR_COARSE_CODE 0x35
+
+#define   DW3000_OTP_CFG_OFF 0x8
+#define     DW3000_OTP_CFG_MANUAL BIT(0)
+#define     DW3000_OTP_CFG_READ BIT(1)
+#define     DW3000_OTP_CFG_DGC_SEL BIT(7)
+#define     DW3000_OTP_CFG_DGC_KICK BIT(8)
+#define     DW3000_OTP_CFG_LDO_KICK BIT(9)
+#define     DW3000_OTP_CFG_BIAS_KICK BIT(10)
+#define   DW3000_OTP_RDATA_OFF 0x10
 
 #define DW3000_CIA3_FID 0x0e
 #define   DW3000_RX_ANTENNA_DELAY_OFF 0x0
@@ -317,6 +343,15 @@ struct dw3000_config {
 //TODO	bool autoack;
 };
 
+struct dw3000_otp {
+	u32 ldo_tune_lo;
+	u32 ldo_tune_hi;
+	u32 bias_tune;
+	u32 xtal_trim;
+	u32 dgc_addr;
+	u32 pll_coarse_code;
+};
+
 struct dw3000 {
 	struct ieee802154_hw *hw;
 	struct spi_device *spi;
@@ -324,6 +359,7 @@ struct dw3000 {
 	struct sk_buff *tx_skb;
 	/* Configuration */
 	struct dw3000_config config;
+	struct dw3000_otp otp;
 	/* Regulators (2v5, 1v8, vdd) */
 	struct regulator *regulator_2v5;
 	struct regulator *regulator_1v8;
@@ -870,19 +906,26 @@ static int dw3000_configure_rf(struct dw3000 *dw)
 	if (ret)
 		return ret;
 
-	/* Configure PLL coarse code by clearing CH9 ICAS and RCAS */
+	/* Configure PLL coarse code */
 #if defined E0
 	ret = dw3000_reg_and8(dw, DW3000_FS_CTRL_FID, DW3000_PLL_CC_OFF + 3,
 			      ~(DW3000_PLL_COARSE_CODE_CH9_RCAS |
 				DW3000_PLL_COARSE_CODE_CH9_ICAS) >> 24);
 	if (ret)
 		return ret;
+#elif defined D0
+	if (dw->otp.pll_coarse_code) {
+		ret = dw3000_reg_write8(dw, DW3000_FS_CTRL_FID, DW3000_PLL_CC_OFF,
+					dw->otp.pll_coarse_code);
+		if (ret)
+			return ret;
+	}
 #endif
 
 	return 0;
 }
 
-static int dw3000_set_mrxlut(struct dw3000 *dw)
+static int dw3000_set_default_mrxlut(struct dw3000 *dw)
 {
 	/* The manual gives magic LUT values which are copy/pasted here */
 #if defined E0
@@ -928,9 +971,21 @@ static int dw3000_set_mrxlut(struct dw3000 *dw)
 int dw3000_configure_dgc(struct dw3000 *dw)
 {
 	int ret;
-	/* Only enable DGC for PRF 64. */
+
+	/* If the OTP contains DGC parameters do a manual kick, otherwise
+	 * fallback to a default LUT. This only applies to PRFs of 64.
+	 */
 	if (dw->hw->phy->current_chan.mean_prf == NL802154_MEAN_PRF_62890KHZ) {
-		ret = dw3000_set_mrxlut(dw);
+		if (dw->otp.dgc_addr == DW3000_OTP_DGC_CFG0) {
+			u16 dgc_sel = DW3000_OTP_CFG_DGC_KICK;
+			if (dw->hw->phy->current_chan.channel == 9)
+				dgc_sel |= DW3000_OTP_CFG_DGC_SEL;
+
+			ret = dw3000_reg_modify16(dw, DW3000_OTP_FID, DW3000_OTP_CFG_OFF,
+						  (u16)~DW3000_OTP_CFG_DGC_SEL, dgc_sel);
+		} else {
+			ret = dw3000_set_default_mrxlut(dw);
+		}
 		if (ret)
 			return ret;
 
@@ -956,7 +1011,7 @@ static void __maybe_unused dw3000_print_status_dbg(struct dw3000 *dw)
 				DW3000_SYS_STATUS_OFF, &status_lo);
 	ret = dw3000_reg_read32(dw, DW3000_GENERAL_REG0_FID,
 				DW3000_SYS_STATUS_OFF + 4, &status_hi);
-	printk("%s [%d] status %08x %08x\n", __func__, __LINE__, status_lo, status_hi);
+	printk("%s [%d] Status Lo:%08x Hi:%08x\n", __func__, __LINE__, status_lo, status_hi);
 }
 
 static int dw3000_calibrate_and_lock_pll(struct dw3000 *dw)
@@ -1352,7 +1407,7 @@ static int dw3000_configure_device(struct dw3000 *dw)
 	if (ret)
 		return ret;
 
-	/* Configure Device Capability Group related fields */
+	/* Configure Digital Gain Config */
 	ret = dw3000_configure_dgc(dw);
 	if (ret)
 		return ret;
@@ -1510,7 +1565,7 @@ static int dw3000_assert_reset(struct dw3000 *dw, bool reset)
 }
 
 /**
- * dw3000_check_devid() - Read and check the DEVID register
+ * dw3000_get_devid() - Read and check the DEVID register
  * @dw: the DW device on which the SPI transfer will occurs
  *
  * Return: 0 on success, else -ENODEV error code.
@@ -1627,8 +1682,71 @@ static int dw3000_soft_reset(struct dw3000 *dw)
 	return 0;
 }
 
+int dw3000_otp_read32(struct dw3000 *dw, u16 addr, u32 *val)
+{
+	int ret;
+
+	/* Set manual access mode */
+	ret = dw3000_reg_write16(dw, DW3000_OTP_FID, DW3000_OTP_CFG_OFF, DW3000_OTP_CFG_MANUAL);
+	if (ret)
+		return ret;
+
+	/* Provide the address */
+	ret = dw3000_reg_write16(dw, DW3000_OTP_FID, DW3000_OTP_ADDR_OFF, DW3000_OTP_ADDR(addr));
+	if (ret)
+		return ret;
+
+	/* Assert the read strobe */
+	ret = dw3000_reg_write16(dw, DW3000_OTP_FID, DW3000_OTP_CFG_OFF, DW3000_OTP_CFG_READ);
+	if (ret)
+		return ret;
+
+	/* Attempt a read from OTP at the configured address */
+	return dw3000_reg_read32(dw, DW3000_OTP_FID, DW3000_OTP_RDATA_OFF, val);
+}
+
+int dw3000_read_otp(struct dw3000 *dw)
+{
+	int ret;
+
+	ret = dw3000_otp_read32(dw, DW3000_OTP_ADDR_LDO_TUNE_LO, &dw->otp.ldo_tune_lo);
+	if (ret)
+		return ret;
+
+	ret = dw3000_otp_read32(dw, DW3000_OTP_ADDR_LDO_TUNE_HI, &dw->otp.ldo_tune_hi);
+	if (ret)
+		return ret;
+
+#if defined E0
+	ret = dw3000_otp_read32(dw, DW3000_OTP_ADDR_BIAS_TUNE, &dw->otp.bias_tune);
+	if (ret)
+		return ret;
+
+	dw->otp.bias_tune = DW3000_OTP_BIAS_TUNE(dw->otp.bias_tune);
+#endif
+
+	ret = dw3000_otp_read32(dw, DW3000_OTP_ADDR_XTAL_TRIM, &dw->otp.xtal_trim);
+	if (ret)
+		return ret;
+
+	dw->otp.xtal_trim = DW3000_XTAL_TRIM(dw->otp.xtal_trim);
+	if (!dw->otp.xtal_trim)
+		dw->otp.xtal_trim = DW3000_XTAL_TRIM_DEFAULT;
+
+	ret = dw3000_otp_read32(dw, DW3000_OTP_ADDR_DGC_TUNE, &dw->otp.dgc_addr);
+	if (ret)
+		return ret;
+
+	ret = dw3000_otp_read32(dw, DW3000_OTP_ADDR_COARSE_CODE, &dw->otp.pll_coarse_code);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
 static int dw3000_init(struct dw3000 *dw)
 {
+	u32 val = 0;
 	int ret;
 
 	// TODO: Ensure GPIO block clock is enabled
@@ -1637,19 +1755,40 @@ static int dw3000_init(struct dw3000 *dw)
 	if (ret)
 		return ret;
 
-	// TODO: read LDO_TUNE and BIAS_TUNE from OTP and write them */
-	// TODO: read XTRIM from OTP and write it */
-	// TODO: read COARSE_CODE from OTP and write it */
-	// TODO: extract and apply antenna calibration and delay
+	/* Kick LDO and BIAS tuning based on OTP content */
+	if (dw->otp.ldo_tune_lo || dw->otp.ldo_tune_hi)
+		val |= DW3000_OTP_CFG_LDO_KICK;
+#if defined E0
+	if (dw->otp.bias_tune)
+		val |= DW3000_OTP_CFG_BIAS_KICK;
+#endif
+	dw3000_reg_or16(dw, DW3000_OTP_FID, DW3000_OTP_CFG_OFF, val);
 
-	//todo: this is a try to ensure a good channel is configured by default before trying to enable the pll, not sure this is needed.
-	ret = dw3000_set_channel(dw->hw, &dw->hw->phy->current_chan);
-//	ret = dw3000_configure_device(dw);
-	if (ret) {
-		dev_err(dw->dev, "Failed to configure device (%d)\n", ret);
-		return ret;
+	/* Get XTRIM from OTP and write it */
+	if (dw->otp.xtal_trim) {
+		ret = dw3000_reg_write8(dw, DW3000_FS_CTRL_FID, DW3000_XTAL_OFF,
+					dw->otp.xtal_trim);
+		if (ret)
+			return ret;
 	}
 
+	/* Configure PLL coarse code */
+#if defined E0
+	ret = dw3000_reg_and8(dw, DW3000_FS_CTRL_FID, DW3000_PLL_CC_OFF + 3,
+			      ~(DW3000_PLL_COARSE_CODE_CH9_RCAS |
+				DW3000_PLL_COARSE_CODE_CH9_ICAS) >> 24);
+	if (ret)
+		return ret;
+#elif defined D0
+	if (dw->otp.pll_coarse_code) {
+		ret = dw3000_reg_write8(dw, DW3000_FS_CTRL_FID, DW3000_PLL_CC_OFF,
+					dw->otp.pll_coarse_code);
+		if (ret)
+			return ret;
+	}
+#endif
+
+	// TODO: extract and apply antenna calibration and delay?
 	ret = dw3000_set_antennas_delay(dw, 0);
 	if (ret) {
 		dev_err(dw->dev, "Failed to set antennas delay (%d)\n", ret);
@@ -1899,7 +2038,7 @@ static int dw3000_probe(struct spi_device *spi)
 	struct dw3000 *dw;
 	int ret;
 
-	printk("%s [%d]\n", __func__, __LINE__);
+	printk("%s [%d] NEW\n", __func__, __LINE__);
 	hw = ieee802154_alloc_hw(sizeof(*dw), &dw3000_ops);
 	printk("%s [%d]\n", __func__, __LINE__);
 	if (!hw)
@@ -2008,11 +2147,16 @@ static int dw3000_probe(struct spi_device *spi)
 	if (ret)
 		goto reset;
 
+	// TODO: Handle D0 and E0 at the same time. Remove the conditional
 	if (IS_ENABLED(CONFIG_DEBUG) || IS_ENABLED(CONFIG_DEBUG_FS)) {
 		ret = dw3000_get_devid(dw);
 		if (ret)
 			goto reset;
 	}
+
+	ret = dw3000_read_otp(dw);
+	if (ret)
+		goto reset;
 
 	ret = ieee802154_register_hw(hw);
 	if (ret)
@@ -2036,9 +2180,10 @@ static void dw3000_remove(struct spi_device *spi)
 {
 	struct dw3000 *dw = spi_get_drvdata(spi);
 
-	ieee802154_unregister_hw(dw->hw);
 	dw3000_assert_reset(dw, true);
 	dw3000_supply_power(dw, false);
+	ieee802154_unregister_hw(dw->hw);
+	ieee802154_free_hw(dw->hw);
 }
 
 static const struct of_device_id dw3000_of_ids[] = {
