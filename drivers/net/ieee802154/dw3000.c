@@ -1679,7 +1679,8 @@ static int dw3000_soft_reset(struct dw3000 *dw)
 	/* Restore max SPI clock speed */
 	dw->spi->max_speed_hz = max_speed_hz;
 
-	return 0;
+	/* Some interrupts are re-enabled by default after the soft reset */
+	return dw3000_set_interrupt(dw, 0, 0xFFFFFFFF, 0xFFFFFFFF);
 }
 
 int dw3000_otp_read32(struct dw3000 *dw, u16 addr, u32 *val)
