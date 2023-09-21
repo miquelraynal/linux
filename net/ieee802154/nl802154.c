@@ -1009,29 +1009,49 @@ static int nl802154_set_channel(struct sk_buff *skb, struct genl_info *info)
 
 	chan.page = nla_get_u8(info->attrs[NL802154_ATTR_PAGE]);
 	chan.channel = nla_get_u8(info->attrs[NL802154_ATTR_CHANNEL]);
-	if (info->attrs[NL802154_ATTR_PREAMBLE_CODE])
-		chan.preamble_code = nla_get_u8(info->attrs[NL802154_ATTR_PREAMBLE_CODE]);
-	if (info->attrs[NL802154_ATTR_MEAN_PRF])
-		chan.mean_prf = nla_get_u8(info->attrs[NL802154_ATTR_MEAN_PRF]);
+	printk("%s [%d] p %d, c %d\n", __func__, __LINE__,
+	       chan.page, chan.channel);
 
-	/* Try to guess UWB chan properties if they are not provided */
+
+	/* Try to guess UWB chan properties if they are not provided:
+	 * If already on a UWB channel, do not change the configuration.
+	 * Otherwise fallback to the first mandatory/supported value.
+	 */
 	if (ieee802154_is_uwb_chan(&chan)) {
-		/* If already on a UWB channel, do not change the configuration */
-		if (!chan.preamble_code)
-			chan.preamble_code = wpan_phy->current_chan.preamble_code;
-		if (!chan.mean_prf)
-			chan.mean_prf = wpan_phy->current_chan.mean_prf;
+		bool current_uwb_chan = ieee802154_is_uwb_chan(&wpan_phy->current_chan);
 
-		/* Otherwise fallback to the first mandatory/supported value */
-		if (!chan.preamble_code) {
+		if (info->attrs[NL802154_ATTR_PREAMBLE_CODE]) {
+			chan.preamble_code = nla_get_u8(info->attrs[NL802154_ATTR_PREAMBLE_CODE]);
+			printk("%s [%d] pcode %d\n", __func__, __LINE__,
+			       chan.preamble_code);
+		} else if (current_uwb_chan) {
+			chan.preamble_code = wpan_phy->current_chan.preamble_code;
+			printk("%s [%d] pcode %d\n", __func__, __LINE__,
+			       chan.preamble_code);
+		} else {
 			supported = ieee802154_uwb_supported_codes(wpan_phy,
 								   chan.channel);
+			printk("%s [%d] supported code: 0x%llx\n", __func__, __LINE__, supported);
 			chan.preamble_code = ffs(supported) - 1;
+			printk("%s [%d] pcode %d\n", __func__, __LINE__,
+			       chan.preamble_code);
 		}
-		if (!chan.mean_prf) {
+
+		if (info->attrs[NL802154_ATTR_MEAN_PRF]) {
+			chan.mean_prf = nla_get_u8(info->attrs[NL802154_ATTR_MEAN_PRF]);
+			printk("%s [%d] prf %d\n", __func__, __LINE__,
+			       chan.mean_prf);
+		} else if (current_uwb_chan) {
+			chan.mean_prf = wpan_phy->current_chan.mean_prf;
+			printk("%s [%d] prf %d\n", __func__, __LINE__,
+			       chan.mean_prf);
+		} else {
 			supported = ieee802154_uwb_supported_prfs(wpan_phy) &
 				    ieee802154_uwb_default_prfs(chan.preamble_code);
+			printk("%s [%d] supported prf: 0x%llx\n", __func__, __LINE__, supported);
 			chan.mean_prf = BIT(ffs(supported) - 1);
+			printk("%s [%d] prf %d\n", __func__, __LINE__,
+			       chan.mean_prf);
 		}
 	}
 

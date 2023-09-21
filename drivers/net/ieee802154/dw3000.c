@@ -157,11 +157,11 @@
 #define     DW3000_SYS_STATUS_ALL GENMASK(31, 0)
 #define   DW3000_RX_FINFO_OFF 0x4c
 #define     DW3000_RX_FINFO_LEN(finfo) FIELD_GET(GENMASK(9, 0), finfo)
-#define   DW3000_TX_ANTD_OFF 0x7c
+#define   DW3000_TX_ANTENNA_DELAY_OFF 0x7c
 
 #define DW3000_GENERAL_REG1_FID 0x01
 #define   DW3000_TX_POWER_OFF 0x04
-#define   DW3000_CHAN_CTRL_OFF 0x30
+#define   DW3000_CHAN_CTRL_OFF 0x08
 #define     DW3000_CHAN_CTRL_CHAN5 0
 #define     DW3000_CHAN_CTRL_CHAN9 BIT(0)
 /*          Start of Frame Delimiter (SFD) */
@@ -275,7 +275,6 @@
 #define     DW3000_OTP_ADDR_DGC_TUNE 0x20
 #define       DW3000_OTP_DGC_CFG0 0x10000240
 #define     DW3000_OTP_ADDR_COARSE_CODE 0x35
-
 #define   DW3000_OTP_CFG_OFF 0x8
 #define     DW3000_OTP_CFG_MANUAL BIT(0)
 #define     DW3000_OTP_CFG_READ BIT(1)
@@ -463,6 +462,7 @@ static int dw3000_spi_fast_cmd(struct dw3000 *dw, u8 cmd)
 	struct spi_message msg;
 
 	spi_message_init_with_transfers(&msg, &trans, 1);
+	printk("%s [%d] cmd: %x\n", __func__, __LINE__, cmd);
 
 	return spi_sync(dw->spi, &msg);
 }
@@ -547,6 +547,7 @@ static int dw3000_reg_read32(struct dw3000 *dw, unsigned int reg_fileid,
 static int dw3000_reg_write8(struct dw3000 *dw, unsigned int reg_fileid,
 			     unsigned int reg_off, u8 val)
 {
+	printk("write 0x%02x @ [%x-%x]\n", val, reg_fileid, reg_off);
 	return dw3000_spi_msg(dw, true, reg_fileid, reg_off, &val, 1);
 }
 
@@ -555,6 +556,7 @@ static int dw3000_reg_write16(struct dw3000 *dw, unsigned int reg_fileid,
 {
 	__le16 tmp = cpu_to_le16(val);
 
+	printk("write 0x%04x @ [%x-%x]\n", val, reg_fileid, reg_off);
 	return dw3000_spi_msg(dw, true, reg_fileid, reg_off, &tmp, 2);
 }
 
@@ -563,6 +565,7 @@ static int dw3000_reg_write32(struct dw3000 *dw, unsigned int reg_fileid,
 {
 	__le32 tmp = cpu_to_le32(val);
 
+	printk("write 0x%08x @ [%x-%x]\n", val, reg_fileid, reg_off);
 	return dw3000_spi_msg(dw, true, reg_fileid, reg_off, &tmp, 2);
 }
 
@@ -588,6 +591,7 @@ static int dw3000_reg_modify8(struct dw3000 *dw, unsigned int reg_fileid,
 
 	tmp[0] = and;
 	tmp[1] = or;
+	printk("modify (and)0x%02x (or)0x%02x @ [%x-%x]\n", and, or, reg_fileid, reg_off);
 	spi_message_init_with_transfers(&msg, trans, 2);
 
 	return spi_sync(dw->spi, &msg);
@@ -615,6 +619,7 @@ static int dw3000_reg_modify16(struct dw3000 *dw, unsigned int reg_fileid,
 
 	tmp[0] = cpu_to_le16(and);
 	tmp[1] = cpu_to_le16(or);
+	printk("modify (and)0x%04x (or)0x%04x @ [%x-%x]\n", and, or, reg_fileid, reg_off);
 	spi_message_init_with_transfers(&msg, trans, 2);
 
 	return spi_sync(dw->spi, &msg);
@@ -642,6 +647,7 @@ static int dw3000_reg_modify32(struct dw3000 *dw, unsigned int reg_fileid,
 
 	tmp[0] = cpu_to_le32(and);
 	tmp[1] = cpu_to_le32(or);
+	printk("modify (and)0x%08x (or)0x%08x @ [%x-%x]\n", and, or, reg_fileid, reg_off);
 	spi_message_init_with_transfers(&msg, trans, 2);
 
 	return spi_sync(dw->spi, &msg);
@@ -661,6 +667,19 @@ static int dw3000_reg_modify32(struct dw3000 *dw, unsigned int reg_fileid,
 	dw3000_reg_modify32(dw, reg_fileid, reg_off, (u32)-1, or_val)
 #define dw3000_reg_and32(dw, reg_fileid, reg_off, and_val) \
 	dw3000_reg_modify32(dw, reg_fileid, reg_off, (u32)and_val, 0)
+
+
+static int dw3000_read_sys_status(struct dw3000 *dw, u32 *sysstat)
+{
+	return dw3000_reg_read32(dw, DW3000_GENERAL_REG0_FID,
+				 DW3000_SYS_STATUS_OFF, sysstat);
+}
+
+static int dw3000_clear_sys_status(struct dw3000 *dw, u32 mask)
+{
+	return dw3000_reg_write32(dw, DW3000_GENERAL_REG0_FID,
+				  DW3000_SYS_STATUS_OFF, mask);
+}
 
 static int dw3000_set_interrupt(struct dw3000 *dw, bool setnreset,
 				u32 bitmask_low, u32 bitmask_high)
@@ -739,11 +758,6 @@ static int dw3000_xmit_async(struct ieee802154_hw *hw, struct sk_buff *skb)
 	return dw3000_tx_frame(dw, skb);
 }
 
-//static int dw3000_ed(struct ieee802154_hw *hw, u8 *level)
-//{
-//	return -EOPNOTSUPP;
-//}
-
 /**
  * dw3000_enable_rx() - Enable reception on the PHY off
  * @dw: the DW device
@@ -788,13 +802,13 @@ int dw3000_disable_txrx(struct dw3000 *dw)
 static int dw3000_configure_chan_ctrl(struct dw3000 *dw,
 				      struct ieee802154_channel *chan)
 {
-	u16 chan_ctrl =
-		(chan->channel == 5) ? DW3000_CHAN_CTRL_CHAN5 : DW3000_CHAN_CTRL_CHAN9 |
+	u32 chan_ctrl =
+		(chan->channel == 5 ? DW3000_CHAN_CTRL_CHAN5 : DW3000_CHAN_CTRL_CHAN9) |
 		DW3000_CHAN_CTRL_SFD_TYPE(dw->config.sfd_type) |
 		DW3000_CHAN_CTRL_RX_PCODE(chan->preamble_code) |
 		DW3000_CHAN_CTRL_TX_PCODE(chan->preamble_code);
 
-	return dw3000_reg_write16(dw, DW3000_GENERAL_REG1_FID,
+	return dw3000_reg_write32(dw, DW3000_GENERAL_REG1_FID,
 				  DW3000_CHAN_CTRL_OFF, chan_ctrl);
 }
 
@@ -833,9 +847,8 @@ int dw3000_configure_plen_and_datarate(struct dw3000 *dw)
 	 * calculation based on TXPSR.
 	 */
 	fine_plen = (dw->config.preamble_length == DW3000_PLEN_72) ? 9 : 0;
-	ret = dw3000_reg_modify16(dw, DW3000_GENERAL_REG0_FID, DW3000_TX_FCTRL_HIGH_OFF,
-				  ~DW3000_TX_FINE_PLEN(0xff),
-				  DW3000_TX_FINE_PLEN(fine_plen));
+	ret = dw3000_reg_write8(dw, DW3000_GENERAL_REG0_FID, DW3000_TX_FCTRL_HIGH_OFF + 1,
+				DW3000_TX_FINE_PLEN(fine_plen) >> 8);
 	if (ret)
 		return ret;
 
@@ -848,17 +861,78 @@ int dw3000_configure_plen_and_datarate(struct dw3000 *dw)
 
 int dw3000_configure_sys_cfg(struct dw3000 *dw)
 {
+	const struct dw3000_plen_pac_info *lut = &dw3000_plen_pac_lut[dw->config.preamble_length];
+	u8 fine_plen;
+	int ret;
+
 	/* Set the PHR mode, PHR rate, STS protocol, SDC and PDOA mode */
-	return dw3000_reg_modify32(dw, DW3000_GENERAL_REG0_FID, DW3000_SYS_CFG_OFF,
-				   ~(DW3000_SYS_CFG_PHR_MODE(1) |
-				     DW3000_SYS_CFG_PHR_RATE(1) |
-				     DW3000_SYS_CFG_CP_SPC(1) |
-				     DW3000_SYS_CFG_PDOA_MODE(1) |
-				     DW3000_SYS_CFG_SDC(1)),
-				   DW3000_SYS_CFG_PHR_MODE(dw->config.phr_mode) |
-				   DW3000_SYS_CFG_PHR_RATE(dw->config.phr_rate) |
-				   DW3000_SYS_CFG_CP_SPC(dw->config.sts_mode) |
-				   DW3000_SYS_CFG_PDOA_MODE(dw->config.pdoa_mode));
+	ret = dw3000_reg_modify32(dw, DW3000_GENERAL_REG0_FID, DW3000_SYS_CFG_OFF,
+				  ~(DW3000_SYS_CFG_PHR_MODE(1) |
+				    DW3000_SYS_CFG_PHR_RATE(1) |
+				    DW3000_SYS_CFG_CP_SPC(3) |
+				    DW3000_SYS_CFG_PDOA_MODE(3) |
+				    DW3000_SYS_CFG_SDC(1)),
+				  DW3000_SYS_CFG_PHR_MODE(dw->config.phr_mode) |
+				  DW3000_SYS_CFG_PHR_RATE(dw->config.phr_rate) |
+				  DW3000_SYS_CFG_CP_SPC(dw->config.sts_mode) |
+				  DW3000_SYS_CFG_PDOA_MODE(dw->config.pdoa_mode) |
+				  /*TODO: add this in default config*/ DW3000_SYS_CFG_SDC(1));
+	if (ret)
+		return ret;
+
+	ret = dw3000_reg_modify32(dw, 0xb, 0x8,
+				  (u32)~(BIT(12) | BIT(13)), //0x3000 DW3000_NVM_CFG_GEAR_ID_BIT_MASK),
+				    BIT(12) /*DW3000_OPSET_SHORT*/ | BIT(11) /*DW3000_NVM_CFG_GEAR_KICK_BIT_MASK*/);
+	if (ret)
+		return ret;
+
+	#define DW3000_DRX_TUNE0_PRE_PAC_SYM_BIT_MASK 0x3
+	#define DW3000_DRX_TUNE0_DT0B4_BIT_MASK 0x10
+	/* Configure PAC */
+	if (dw->config.pdoa_mode == DW3000_PDOA_M1) {
+		/* Disable STS CMF, and configure PAC size */
+		ret = dw3000_reg_modify8(dw, 0x6 /*DW3000_DRX_TUNE0_ID*/, 0,
+					 (u8) ~(DW3000_DRX_TUNE0_PRE_PAC_SYM_BIT_MASK |
+						DW3000_DRX_TUNE0_DT0B4_BIT_MASK),
+					 DW3000_DTUNE0_PAC(lut->pac_sz_reg_val));
+	} else {
+		/* Enable STS CMF, and configure PAC size */
+		ret = dw3000_reg_modify8(dw, 0x6 /*DW3000_DRX_TUNE0_ID*/, 0,
+					 (u8)~DW3000_DRX_TUNE0_PRE_PAC_SYM_BIT_MASK,
+					 DW3000_DTUNE0_PAC(lut->pac_sz_reg_val) | DW3000_DRX_TUNE0_DT0B4_BIT_MASK);
+	}
+	if (ret)
+		return ret;
+
+	/* With 72 symbols of preamble, we need to use fine preamble length of 9.
+	 * Otherwise, clear the setting in the FINE_PLEN register to use default
+	 * calculation based on TXPSR.
+	 */
+	//TODO: this exact thing is done twice, check if it can be dropped
+	fine_plen = (dw->config.preamble_length == DW3000_PLEN_72) ? 9 : 0;
+	ret = dw3000_reg_write8(dw, DW3000_GENERAL_REG0_FID, DW3000_TX_FCTRL_HIGH_OFF + 1,
+				DW3000_TX_FINE_PLEN(fine_plen) >> 8);
+	if (ret)
+		return ret;
+
+	//TODO: cleanup
+	if (dw->config.sts_mode == DW3000_STS_MODE_ND) {
+		/**
+		 * Configure lower preamble detection threshold for no data
+		 * STS mode.
+		 */
+		return dw3000_reg_write32(dw, 0x6 /*DW3000_DRX_TUNE3_ID*/, 0xc,
+					  /*DW3000_PD_THRESH_NO_DATA*/ 0xAF5F35CC);
+	} else {
+		/**
+		 * Configure default preamble detection threshold for other
+		 * modes.
+		 */
+		return dw3000_reg_write32(dw, 0x6 /*DW3000_DRX_TUNE3_ID*/, 0xc,
+					  /*DW3000_PD_THRESH_DEFAULT*/ 0xAF5F584C);
+	}
+
+	return 0;
 }
 
 static int dw3000_configure_rf(struct dw3000 *dw)
@@ -900,9 +974,8 @@ static int dw3000_configure_rf(struct dw3000 *dw)
 		return ret;
 
 	/* Extend the lock delay */
-	ret = dw3000_reg_modify8(dw, DW3000_FS_CTRL_FID, DW3000_PLL_CAL_OFF,
-				 DW3000_PLL_CFG_LD(0xf),
-				 DW3000_PLL_CFG_LD(DW3000_PLL_CFG_LD_DEF));
+	ret = dw3000_reg_write8(dw, DW3000_FS_CTRL_FID, DW3000_PLL_CAL_OFF,
+				 DW3000_PLL_CFG_LD(DW3000_PLL_CFG_LD_DEF) | 0x1 /* TODO:undefined bit, just to ensure it is set to mimic Qorvo's write8(0x81)*/);
 	if (ret)
 		return ret;
 
@@ -1017,35 +1090,29 @@ static void __maybe_unused dw3000_print_status_dbg(struct dw3000 *dw)
 static int dw3000_calibrate_and_lock_pll(struct dw3000 *dw)
 {
 	int ret, i;
-	u8 status;
-
-	/* Force system clock to auto */
-	ret = dw3000_reg_or8(dw, DW3000_PMSC_FID, DW3000_CLK_CTRL_OFF,
-			     DW3000_SYS_CLK_FORCE_FASTRC);
-	if (ret)
-		return ret;
+	u32 status;
 
 	/* Clear the auto INIT2IDLE bit to switch to IDLE_RC and set FORCE2INIT */
-	ret = dw3000_reg_modify32(dw, DW3000_PMSC_FID, DW3000_SEQ_CTRL_OFF,
-				  (u32)~DW3000_SEQ_CTRL_AINIT2IDLE,
-				  DW3000_SEQ_CTRL_FORCE2INIT);
-	if (ret)
-		return ret;
+	//ret = dw3000_reg_modify32(dw, DW3000_PMSC_FID, DW3000_SEQ_CTRL_OFF,
+//				  (u32)~DW3000_SEQ_CTRL_AINIT2IDLE,
+//				  DW3000_SEQ_CTRL_FORCE2INIT);
+//	if (ret)
+//		return ret;
 
 	/* Then clear FORCE2INIT (device will stay in IDLE_RC) */
-	ret = dw3000_reg_and32(dw, DW3000_PMSC_FID, DW3000_SEQ_CTRL_OFF,
-			       (u32)~DW3000_SEQ_CTRL_FORCE2INIT);
-	if (ret)
-		return ret;
+	//ret = dw3000_reg_and32(dw, DW3000_PMSC_FID, DW3000_SEQ_CTRL_OFF,
+	//		       (u32)~DW3000_SEQ_CTRL_FORCE2INIT);
+//	if (ret)
+//		return ret;
 
 	/* Restore auto clock mode */
 //	ret = dw3000_reg_write8(dw, DW3000_PMSC_FID, DW3000_CLK_CTRL_OFF,
 //				DW3000_SYS_CLK_AUTO);
 //TODO: the original driver does not only set the two first bytes to 0, it also writes bits supposed to be set by default in the register. let's try it:
-	ret = dw3000_reg_write16(dw, DW3000_PMSC_FID, DW3000_CLK_CTRL_OFF,
-				 (u16)(0x200 | 0x200000UL | 0x100000UL |DW3000_SYS_CLK_AUTO));
-	if (ret)
-		return ret;
+	//ret = dw3000_reg_write16(dw, DW3000_PMSC_FID, DW3000_CLK_CTRL_OFF,
+	//			 (u16)(0x200 | 0x200000UL | 0x100000UL |DW3000_SYS_CLK_AUTO));
+//	if (ret)
+//		return ret;
 
 	/* Ensure PLL lock bit is cleared */
 	ret = dw3000_reg_write8(dw, DW3000_GENERAL_REG0_FID, DW3000_SYS_STATUS_OFF,
@@ -1053,27 +1120,25 @@ static int dw3000_calibrate_and_lock_pll(struct dw3000 *dw)
 	if (ret)
 		return ret;
 
-	//TODO: try: also clear the high bits giving idle_rc and init_rc
-	ret = dw3000_reg_write32(dw, DW3000_GENERAL_REG0_FID, DW3000_SYS_STATUS_OFF,
-				0x01800004);
-	if (ret)
-		return ret;
-
-	// TODO: this is the force auto clock mode thing done again, see above
+	/* Force system clock to auto */
 	ret = dw3000_reg_write16(dw, DW3000_PMSC_FID, DW3000_CLK_CTRL_OFF,
-				 (u16)(0x200 | 0x200000UL | 0x100000UL |DW3000_SYS_CLK_AUTO));
+			     0x200 /*DW3000_SYS_CLK_FORCE_FASTRC*/);
 	if (ret)
 		return ret;
 
 	/* Run the PLL calibration */
 	ret = dw3000_reg_or32(dw, DW3000_FS_CTRL_FID, DW3000_PLL_CAL_OFF,
+#if defined D0
 			      DW3000_PLL_CAL_EN);
+#else
+			      0x100);
+#endif
 	if (ret)
 		return ret;
 
 	/* Wait for the PLL calibration (needed before reading the calibration status register) */
-	usleep_range(DW3000_D0_E0_PLL_CALIBRATION_DELAY_US * 2,
-		     DW3000_D0_E0_PLL_CALIBRATION_DELAY_US * 2+ 50);
+	usleep_range(DW3000_D0_E0_PLL_CALIBRATION_DELAY_US,
+		     DW3000_D0_E0_PLL_CALIBRATION_DELAY_US + 50);
 
 	/* Set auto INIT2IDLE back to cause the IC to enable the PLL */
 	ret = dw3000_reg_or8(dw, DW3000_PMSC_FID, DW3000_SEQ_CTRL_OFF + 1,
@@ -1085,10 +1150,10 @@ static int dw3000_calibrate_and_lock_pll(struct dw3000 *dw)
 	for (i = 0; i < DW3000_MAX_RETRIES_FOR_PLL; i++) {
 		usleep_range(10, 40);
 
-		ret = dw3000_reg_read8(dw, DW3000_GENERAL_REG0_FID,
+		ret = dw3000_reg_read32(dw, DW3000_GENERAL_REG0_FID,
 				       DW3000_SYS_STATUS_OFF, &status);
 		//TODO: remove dbg
-		printk("%s [%d] status %02x\n", __func__, __LINE__, status);
+		printk("%s [%d] status %08x\n", __func__, __LINE__, status);
 		if (ret)
 			return ret;
 
@@ -1324,6 +1389,7 @@ static int dw3000_calibrate_adc_thresholds(struct dw3000 *dw)
 	if (ret)
 		return ret;
 
+	// TODO: handle D0
 	/* Monitor the thresholds */
 	for (i = 0; i < DW3000_E0_ADC_THRESHOLD_TRIES; i++) {
 		/* Step 3a: enable receiver */
@@ -1394,11 +1460,8 @@ static int dw3000_configure_device(struct dw3000 *dw)
 	if (ret)
 		return ret;
 
-	/* Setup TX preamble size, data rate and SDF timeout count. There is
-	 * currently no support for changing the preamble length so use 64 as a
-	 * default for now.
-	 */
-	ret = dw3000_configure_plen_and_datarate(dw);
+	/* Configure the channel */
+	ret = dw3000_configure_chan_ctrl(dw, &dw->hw->phy->current_chan);
 	if (ret)
 		return ret;
 
@@ -1409,6 +1472,14 @@ static int dw3000_configure_device(struct dw3000 *dw)
 
 	/* Configure Digital Gain Config */
 	ret = dw3000_configure_dgc(dw);
+	if (ret)
+		return ret;
+
+	/* Setup TX preamble size, data rate and SDF timeout count. There is
+	 * currently no support for changing the preamble length so use 64 as a
+	 * default for now.
+	 */
+	ret = dw3000_configure_plen_and_datarate(dw);
 	if (ret)
 		return ret;
 
@@ -1453,7 +1524,14 @@ static int dw3000_set_channel(struct ieee802154_hw *hw, struct ieee802154_channe
 	if (ret)
 		return ret;
 
-	return dw3000_configure_device(dw);
+	//TODO: disable Rx and reenable after
+
+//TODO	if (chan->page == current page && chan->channel == current channel)
+//		return 0;
+
+//	return dw3000_configure_device(dw);
+	//TODO: relock pll
+	return 0;
 }
 
 static void dw3000_set_operational_state(struct dw3000 *dw,
@@ -1608,11 +1686,13 @@ static int dw3000_set_antennas_delay(struct dw3000 *dw, u16 delay)
 {
 	int ret;
 
-	ret = dw3000_reg_write16(dw, DW3000_CIA3_FID, DW3000_RX_ANTENNA_DELAY_OFF, delay);
+	ret = dw3000_reg_write16(dw, DW3000_CIA3_FID,
+				 DW3000_RX_ANTENNA_DELAY_OFF, delay);
 	if (ret)
 		return ret;
 
-	return dw3000_reg_write16(dw, DW3000_GENERAL_REG0_FID, DW3000_TX_ANTD_OFF, delay);
+	return dw3000_reg_write16(dw, DW3000_GENERAL_REG0_FID,
+				  DW3000_TX_ANTENNA_DELAY_OFF, delay);
 }
 
 static int dw3000_clear_aonconfig(struct dw3000 *dw)
@@ -1678,6 +1758,8 @@ static int dw3000_soft_reset(struct dw3000 *dw)
 
 	/* Restore max SPI clock speed */
 	dw->spi->max_speed_hz = max_speed_hz;
+
+	dw3000_get_devid(dw);
 
 	/* Some interrupts are re-enabled by default after the soft reset */
 	return dw3000_set_interrupt(dw, 0, 0xFFFFFFFF, 0xFFFFFFFF);
@@ -1750,11 +1832,11 @@ static int dw3000_init(struct dw3000 *dw)
 	u32 val = 0;
 	int ret;
 
-	// TODO: Ensure GPIO block clock is enabled
-
 	ret = dw3000_soft_reset(dw);
 	if (ret)
 		return ret;
+
+//TODO: check if we are in the IDLE_RC state?
 
 	/* Kick LDO and BIAS tuning based on OTP content */
 	if (dw->otp.ldo_tune_lo || dw->otp.ldo_tune_hi)
@@ -1789,7 +1871,20 @@ static int dw3000_init(struct dw3000 *dw)
 	}
 #endif
 
-	// TODO: extract and apply antenna calibration and delay?
+	/* Disable CIA diagnostics */
+#define DW3000_CIA_CONF_ID 0x0e
+#define   DW3000_CIA_CONF_DIAG 0x0
+#define     DW3000_CIA_CONFIG_DIAG_OFF BIT(20)
+	ret = dw3000_reg_or8(dw, DW3000_CIA_CONF_ID, DW3000_CIA_CONF_DIAG + 2,
+			     DW3000_CIA_CONFIG_DIAG_OFF >> 16);
+
+	// TODO: Ensure GPIO block clock is enabled (E0 ->init() only)
+
+	ret = dw3000_configure_device(dw);
+	if (ret)
+		return ret;
+
+	// TODO: extract and apply antenna calibration and delay in Rx enable
 	ret = dw3000_set_antennas_delay(dw, 0);
 	if (ret) {
 		dev_err(dw->dev, "Failed to set antennas delay (%d)\n", ret);
@@ -1822,9 +1917,17 @@ static int dw3000_start(struct ieee802154_hw *hw)
 	struct dw3000 *dw = hw->priv;
 	int ret;
 
+	dw3000_clear_sys_status(dw, 0xffffffff);
+	printk("%s [%d]\n", __func__, __LINE__);
 	ret = dw3000_init(dw);
 	if (ret) {
 		dev_err(dw->dev, "Failed to initialization chip (%d)\n", ret);
+		return ret;
+	}
+
+	ret = dw3000_configure_device(dw);
+	if (ret) {
+		dev_err(dw->dev, "Failed first configuration (%d)\n", ret);
 		return ret;
 	}
 
@@ -1835,7 +1938,6 @@ static int dw3000_start(struct ieee802154_hw *hw)
 	}
 
 	ret = dw3000_set_interrupt(dw, 1, DW3000_SYS_STATUS_RXFR |
-//					  DW3000_SYS_STATUS_RXFCG |
 					  DW3000_SYS_STATUS_TXFRS, 0);
 	if (ret)
 		goto disable_rx;
@@ -1856,19 +1958,15 @@ static void dw3000_stop(struct ieee802154_hw *hw)
 
 	printk("%s [%d]\n", __func__, __LINE__);
 	disable_irq(dw->spi->irq);
-	dw3000_set_interrupt(dw, 0, 0xFFFFFFFF, 0xFFFFFFFF);
 	dw3000_disable_txrx(dw);
-//	dw3000_assert_reset(dw, true);
-//	dw3000_supply_power(dw, false);
 }
 
 static const struct ieee802154_ops dw3000_ops = {
 	.owner			= THIS_MODULE,
-	.xmit_async		= dw3000_xmit_async,
-//	.ed			= dw3000_ed,
-	.set_channel		= dw3000_set_channel,
 	.start			= dw3000_start,
 	.stop			= dw3000_stop,
+	.set_channel		= dw3000_set_channel,
+	.xmit_async		= dw3000_xmit_async,
 //	.set_hw_addr_filt	= dw3000_set_hw_addr_filt,
 //	.set_txpower		= dw3000_txpower,
 //	.set_lbt		= hulusb_set_lbt,
@@ -1878,18 +1976,6 @@ static const struct ieee802154_ops dw3000_ops = {
 //	.set_frame_retries	= dw3000_set_frame_retries,
 //	.set_promiscuous_mode	= dw3000_set_promiscuous_mode,
 };
-
-static int dw3000_read_sys_status(struct dw3000 *dw, u32 *sysstat)
-{
-	return dw3000_reg_read32(dw, DW3000_GENERAL_REG0_FID,
-				 DW3000_SYS_STATUS_OFF, sysstat);
-}
-
-static int dw3000_clear_sys_status(struct dw3000 *dw, u32 mask)
-{
-	return dw3000_reg_write32(dw, DW3000_GENERAL_REG0_FID,
-				  DW3000_SYS_STATUS_OFF, mask);
-}
 
 static int dw3000_isr_rx_event(struct dw3000 *dw)
 {
@@ -1940,6 +2026,7 @@ static irqreturn_t dw3000_isr(int irq, void *dev_id)
 
 	/* Extract and clear status bits */
 	ret = dw3000_read_sys_status(dw, &status);
+	printk("%s [%d] status %x\n", __func__, __LINE__, status);
 	if (ret)
 		return IRQ_NONE;
 
@@ -2039,9 +2126,8 @@ static int dw3000_probe(struct spi_device *spi)
 	struct dw3000 *dw;
 	int ret;
 
-	printk("%s [%d] NEW\n", __func__, __LINE__);
-	hw = ieee802154_alloc_hw(sizeof(*dw), &dw3000_ops);
 	printk("%s [%d]\n", __func__, __LINE__);
+	hw = ieee802154_alloc_hw(sizeof(*dw), &dw3000_ops);
 	if (!hw)
 		return -ENOMEM;
 
@@ -2077,7 +2163,6 @@ static int dw3000_probe(struct spi_device *spi)
 	dw->hw->phy->current_chan.channel = 5;
 	dw->hw->phy->current_chan.preamble_code = 9;
 	dw->hw->phy->current_chan.mean_prf = NL802154_MEAN_PRF_62890KHZ;
-	//TODO: ensure default pcode/prf config
 
 	//TODO: extract uid from OTP?
 	ieee802154_random_extended_addr(&dw->hw->phy->perm_extended_addr);
@@ -2136,17 +2221,6 @@ static int dw3000_probe(struct spi_device *spi)
 		dev_err(dw->dev, "Device not ready\n");
 		goto reset;
 	}
-
-	/* Disable SPI CRC */
-	// TODO: does not seem to work
-	ret = dw3000_reg_and8(dw, DW3000_GENERAL_REG0_FID, DW3000_SYS_CFG_OFF,
-			      ~DW3000_SYS_CFG_SPI_CRCEN);
-	if (ret)
-		goto reset;
-
-	ret = dw3000_clear_sys_status(dw, DW3000_SYS_STATUS_SPICRCE);
-	if (ret)
-		goto reset;
 
 	// TODO: Handle D0 and E0 at the same time. Remove the conditional
 	if (IS_ENABLED(CONFIG_DEBUG) || IS_ENABLED(CONFIG_DEBUG_FS)) {
