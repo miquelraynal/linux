@@ -742,7 +742,7 @@ int add_mtd_device(struct mtd_info *mtd)
 	dev_set_name(&mtd->dev, "mtd%d", i);
 	dev_set_drvdata(&mtd->dev, mtd);
 	mtd_check_of_node(mtd);
-	of_node_get(mtd_get_of_node(mtd));
+	of_node_get(np);
 	error = device_register(&mtd->dev);
 	if (error) {
 		put_device(&mtd->dev);
@@ -787,7 +787,7 @@ int add_mtd_device(struct mtd_info *mtd)
 fail_nvmem_add:
 	device_unregister(&mtd->dev);
 fail_added:
-	of_node_put(mtd_get_of_node(mtd));
+	of_node_put(np);
 	idr_remove(&mtd_idr, i);
 fail_locked:
 	mutex_unlock(&mtd_table_mutex);
