@@ -690,7 +690,7 @@ static void kobject_cleanup(struct kobject *kobj)
 		pr_debug("'%s': free name\n", name);
 		kfree_const(name);
 	}
-
+//TODO: check if the problem is in the parent, because we anyway need to remove the name...
 	kobject_put(parent);
 }
 
