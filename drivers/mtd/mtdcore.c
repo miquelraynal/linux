@@ -744,10 +744,8 @@ int add_mtd_device(struct mtd_info *mtd)
 	mtd_check_of_node(mtd);
 	of_node_get(np);
 	error = device_register(&mtd->dev);
-	if (error) {
-		put_device(&mtd->dev);
+	if (error)
 		goto fail_added;
-	}
 
 	/* Add the nvmem provider */
 	error = mtd_nvmem_add(mtd);
@@ -785,8 +783,13 @@ int add_mtd_device(struct mtd_info *mtd)
 	return 0;
 
 fail_nvmem_add:
-	device_unregister(&mtd->dev);
+	device_del(&mtd->dev);
 fail_added:
+	/*
+	 * Don't call put_device() here, otherwise all the release mechanisms
+	 * activate and it becomes a total mess as the mtd registration has
+	 * several steps. Callers take care of freeing the device when relevant.
+	 */
 	of_node_put(np);
 	idr_remove(&mtd_idr, i);
 fail_locked:
