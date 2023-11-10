@@ -193,6 +193,11 @@ static int spinand_init_quad_enable(struct spinand_device *spinand)
 			       enable ? CFG_QUAD_ENABLE : 0);
 }
 
+static void spinand_init_continuous_read(struct spinand_device *spinand)
+{
+	spinand->use_continuous_read = false;
+}
+
 static int spinand_continuous_read_enable(struct spinand_device *spinand)
 {
 	return spinand_upd_cfg(spinand, CFG_CONT_READ_ENABLE,
@@ -1306,6 +1311,9 @@ static int spinand_init(struct spinand_device *spinand)
 			ret);
 		goto err_cleanup_ecc_engine;
 	}
+
+	/* Init continuous read */
+	spinand_init_continuous_read(spinand);
 
 	return 0;
 
