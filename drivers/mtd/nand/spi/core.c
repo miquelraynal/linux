@@ -386,10 +386,6 @@ static int spinand_read_from_cache_op(struct spinand_device *spinand,
 	if (req->datalen) {
 		buf = spinand->databuf;
 		nbytes = nanddev_page_size(nand);
-		if (spinand->use_continuous_read) {
-			buf = req->databuf.in;
-			nbytes = req->datalen;
-		}
 		column = 0;
 	}
 
@@ -419,9 +415,6 @@ static int spinand_read_from_cache_op(struct spinand_device *spinand,
 		buf += ret;
 	}
 
-	if (spinand->use_continuous_read)
-		goto finish;
-
 	if (req->datalen)
 		memcpy(req->databuf.in, spinand->databuf + req->dataoffs,
 		       req->datalen);
@@ -437,7 +430,6 @@ static int spinand_read_from_cache_op(struct spinand_device *spinand,
 			       req->ooblen);
 	}
 
-finish:
 	return 0;
 }
 
@@ -654,92 +646,6 @@ static int spinand_write_page(struct spinand_device *spinand,
 	return nand_ecc_finish_io_req(nand, (struct nand_page_io_req *)req);
 }
 
-static int spinand_mtd_continuous_read(struct mtd_info *mtd, loff_t from,
-				       struct mtd_oob_ops *ops,
-				       struct nand_io_iter *iter)
-{
-	struct spinand_device *spinand = mtd_to_spinand(mtd);
-	struct nand_device *nand = mtd_to_nanddev(mtd);
-	int ret = 0;
-
-	/*
-	 * Prevent data length bigger than controller limitation, create
-	 * a temperate operation for checking.
-	 */
-	struct spi_mem_op op = SPINAND_READID_OP(0, 0, spinand->scratchbuf, ops->len);
-	ret = spi_mem_adjust_op_size(spinand->spimem, &op);
-	if (ret) {
-		return ret;
-	}
-
-	if (op.data.nbytes != ops->len) {
-		pr_debug("%s: data length bigger than controller limitation\n", __func__);
-		return -ENOTSUPP;
-	}
-
-	if (from & (nanddev_page_size(nand) - 1)) {
-		pr_debug("%s: unaligned address\n", __func__);
-		return -ENOTSUPP;
-	}
-
-	/*
-	 * Continuous read mode could reduce some operation in On-die ECC free
-	 * flash when read page sequentially.
-	 */
-	iter->req.type = NAND_PAGE_READ;
-	iter->req.mode = MTD_OPS_RAW;
-	iter->req.dataoffs = nanddev_offs_to_pos(nand, from, &iter->req.pos);
-	iter->req.databuf.in = ops->datbuf;
-	iter->req.datalen = ops->len;
-
-	ret = spinand_continuous_read_enable(spinand);
-	if (ret)
-		return ret;
-
-	spinand->use_continuous_read = true;
-
-	ret = spinand_select_target(spinand, iter->req.pos.target);
-	if (ret)
-		return ret;
-
-	/*
-	 * The continuous read operation including: firstly, starting with the
-	 * page read command and the 1 st page data will be read into the cache
-	 * after the read latency tRD. Secondly, Issuing the Read From Cache
-	 * commands (03h/0Bh/3Bh/6Bh/BBh/EBh) to read out the data from cache
-	 * continuously.
-	 *
-	 * The cache is divided into two halves, while one half of the cache is
-	 * outputting the data, the other half will be loaded for the new data;
-	 * therefore, the host can read out the data continuously from page to
-	 * page. Multiple of Read From Cache commands can be issued in one
-	 * continuous read operation, each Read From Cache command is required
-	 * to read multiple 4-byte data exactly; otherwise, the data output will
-	 * be out of sequence from one Read From Cache command to another Read
-	 * From Cache command.
-	 *
-	 * After all the data is read out, the host should pull CS# high to
-	 * terminate this continuous read operation and wait a 6us of tRST for
-	 * the NAND device resets read operation. The data output for each page
-	 * will always start from byte 0 and a full page data should be read out
-	 * for each page.
-	 */
-	ret = spinand_read_page(spinand, &iter->req);
-	if (ret)
-		goto continuous_read_error;
-
-	ret = spinand_reset_op(spinand);
-	if (ret)
-		goto continuous_read_error;
-
-continuous_read_error:
-	spinand->use_continuous_read = false;
-	ops->retlen = iter->req.datalen;
-
-	ret = spinand_continuous_read_disable(spinand);
-	return ret;
-}
-
 static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
 			    struct mtd_oob_ops *ops)
 {
@@ -759,28 +665,6 @@ static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
 
 	old_stats = mtd->ecc_stats;
 
-	/*
-	 * If the device support continuous read mode and read length larger
-	 * than one page size will enter the continuous read mode. This mode
-	 * helps avoid issuing a page read command and read from cache command
-	 * again, and improves read performance for continuous addresses.
-	 */
-	if ((spinand->flags & SPINAND_HAS_CONT_READ_BIT) &&
-	    (ops->len > nanddev_page_size(nand))) {
-		ret = spinand_mtd_continuous_read(mtd, from, ops, &iter);
-
-		mutex_unlock(&spinand->lock);
-
-		if (ret == -ENOTSUPP)
-			goto read_each_page;
-
-		if (ecc_failed && !ret)
-			ret = -EBADMSG;
-
-		return ret ? ret : max_bitflips;
-	}
-
-read_each_page:
 	nanddev_io_for_each_page(nand, NAND_PAGE_READ, from, ops, &iter) {
 		if (disable_ecc)
 			iter.req.mode = MTD_OPS_RAW;
