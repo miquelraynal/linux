@@ -200,6 +200,12 @@ static int spinand_ecc_enable(struct spinand_device *spinand,
 			       enable ? CFG_ECC_ENABLE : 0);
 }
 
+static int spinand_cont_read_enable(struct spinand_device *spinand,
+				    bool enable)
+{
+	return spinand->set_cont_read(spinand, enable);
+}
+
 static int spinand_check_ecc_status(struct spinand_device *spinand, u8 status)
 {
 	struct nand_device *nand = spinand_to_nand(spinand);
@@ -672,6 +678,162 @@ static int spinand_mtd_regular_page_read(struct mtd_info *mtd, loff_t from,
 	return ret;
 }
 
+static int spinand_mtd_continuous_page_read(struct mtd_info *mtd, loff_t from,
+					    struct mtd_oob_ops *ops,
+					    unsigned int *max_bitflips)
+{
+	struct spinand_device *spinand = mtd_to_spinand(mtd);
+	struct nand_device *nand = mtd_to_nanddev(mtd);
+	struct nand_io_iter iter;
+	bool ecc_failed = false;
+	u8 status;
+	int ret;
+
+	ret = spinand_cont_read_enable(spinand, true);
+	if (ret)
+		return ret;
+
+	nanddev_io_iter_init(nand, NAND_PAGE_READ, from, ops, &iter);
+
+	/*
+	 * Continuous read is not supported over different targets, so we can
+	 * simply select it once for all here.
+	 */
+	ret = spinand_select_target(spinand, iter.req.pos.target);
+	if (ret)
+		goto disable_cont_read;
+
+	ret = nand_ecc_prepare_io_req(nand, &iter.req);
+	if (ret)
+		goto disable_cont_read;
+
+	ret = spinand_load_page_op(spinand, &iter.req);
+	if (ret)
+		goto disable_cont_read;
+
+	ret = spinand_wait(spinand, SPINAND_READ_INITIAL_DELAY_US,
+			   SPINAND_READ_POLL_DELAY_US, &status);
+	if (ret < 0)
+		goto reset_chip;
+
+	/*
+	 * The cache is divided into two halves. While one half of the cache has
+	 * the requested data, the other half is loaded with the next chunk of data.
+	 * Therefore, the host can read out the data continuously from page to page.
+	 * Each data read must be a multiple of 4-bytes and full pages should be read;
+	 * otherwise, the data output might get out of sequence from one read command
+	 * to another.
+	 */
+	for (; !nanddev_io_iter_end(nand, &iter);
+	     nanddev_io_iter_next_page(nand, &iter)) {
+		ret = spinand_read_from_cache_op(spinand, &iter.req);
+		if (ret)
+			goto reset_chip;
+
+		//TODO: ideally we should check the status here
+//		if (ret < 0 && ret != -EBADMSG)
+//			goto reset_chip;
+//
+//		if (ret == -EBADMSG)
+//			ecc_failed = true;
+
+		ops->retlen += iter.req.datalen;
+	}
+
+	ret = spinand_read_status(spinand, &status);
+	if (ret)
+		goto reset_chip;
+
+	spinand_ondie_ecc_save_status(nand, status);
+
+	ret = nand_ecc_finish_io_req(nand, &iter.req);
+	if (ret < 0) {
+		if (ret == -EBADMSG)
+			ecc_failed = true;
+		goto reset_chip;
+	}
+
+	*max_bitflips = max_t(unsigned int, *max_bitflips, ret);
+//	ret = 0;
+
+reset_chip:
+	/*
+	 * Once all the data has been read out, the host should pull CS# high to
+	 * terminate the continuous read operation and wait tRST for the NAND
+	 * device to end its internal read operation.
+	 */
+	ret = spinand_reset_op(spinand);
+	if (ecc_failed)
+		ret = -EBADMSG;
+
+disable_cont_read:
+	ret = spinand_cont_read_enable(spinand, false);
+//TODO: error path, which error shall we propagate ?
+	return ret;
+}
+
+static DEFINE_STATIC_KEY_FALSE(cont_read_supported);
+
+static void spinand_cont_read_init(struct spinand_device *spinand)
+{
+	struct nand_device *nand = spinand_to_nand(spinand);
+	enum nand_ecc_engine_type engine_type = nand->ecc.ctx.conf.engine_type;
+
+	/* OOBs cannot be retrieved so external/on-host ECC engine won't work */
+	if (spinand->set_cont_read &&
+	    (engine_type == NAND_ECC_ENGINE_TYPE_ON_DIE ||
+	     engine_type == NAND_ECC_ENGINE_TYPE_NONE)) {
+		static_branch_enable(&cont_read_supported);
+		printk("%s [%d] enable\n", __func__, __LINE__);
+	}
+}
+
+static bool spinand_cont_reads_accross_planes(struct spinand_device *spinand)
+{
+	return spinand->flags & SPINAND_HAS_PLANE_CONT_READ_BIT;
+}
+
+static bool spinand_cont_reads_accross_blocks(struct spinand_device *spinand)
+{
+	return spinand->flags & SPINAND_HAS_BLOCK_CONT_READ_BIT;
+}
+
+static bool spinand_use_cont_read(struct mtd_info *mtd, loff_t from,
+				  struct mtd_oob_ops *ops)
+{
+	struct spinand_device *spinand = mtd_to_spinand(mtd);
+	struct nand_device *nand = mtd_to_nanddev(mtd);
+	struct nand_pos start_pos, end_pos;
+	bool can_cross_planes = spinand_cont_reads_accross_planes(spinand);
+	bool can_cross_blocks = spinand_cont_reads_accross_blocks(spinand);
+
+	/* OOBs won't be retrieved */
+	if (ops->ooblen || ops->oobbuf)
+		return false;
+
+	nanddev_offs_to_pos(nand, from, &start_pos);
+	nanddev_offs_to_pos(nand, from + ops->len - 1, &end_pos);
+
+	/* Continuous reads never cross LUN boundaries */
+	if (start_pos.target != end_pos.target ||
+	    start_pos.lun != end_pos.lun)
+		return false;
+
+	/* Some devices don't support crossing planes boundaries */
+	if (!can_cross_planes && start_pos.plane != end_pos.plane)
+		return false;
+	else if (can_cross_planes && start_pos.plane < end_pos.plane)
+		return true;
+
+	/* Some devices don't support crossing blocks boundaries */
+	if (!can_cross_blocks && start_pos.eraseblock != end_pos.eraseblock)
+		return false;
+	else if (can_cross_blocks && start_pos.eraseblock < end_pos.eraseblock)
+		return true;
+
+	return start_pos.page < end_pos.page;
+}
+
 static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
 			    struct mtd_oob_ops *ops)
 {
@@ -684,7 +846,11 @@ static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
 
 	old_stats = mtd->ecc_stats;
 
-	ret = spinand_mtd_regular_page_read(mtd, from, ops, &max_bitflips);
+	if (static_branch_unlikely(&cont_read_supported) &&
+	    spinand_use_cont_read(mtd, from, ops))
+		ret = spinand_mtd_continuous_page_read(mtd, from, ops, &max_bitflips);
+	else
+		ret = spinand_mtd_regular_page_read(mtd, from, ops, &max_bitflips);
 
 	if (ops->stats) {
 		ops->stats->uncorrectable_errors +=
@@ -1107,6 +1273,7 @@ int spinand_match_and_init(struct spinand_device *spinand,
 		spinand->flags = table[i].flags;
 		spinand->id.len = 1 + table[i].devid.len;
 		spinand->select_target = table[i].select_target;
+		spinand->set_cont_read = table[i].set_cont_read;
 
 		op = spinand_select_op_variant(spinand,
 					       info->op_variants.read_cache);
@@ -1278,6 +1445,12 @@ static int spinand_init(struct spinand_device *spinand)
 	ret = nanddev_ecc_engine_init(nand);
 	if (ret)
 		goto err_cleanup_nanddev;
+
+	/*
+	 * Continuous read can only be enabled with an on-die ECC engine, so the
+	 * ECC initialization must have happened previously.
+	 */
+	spinand_cont_read_init(spinand);
 
 	mtd->_read_oob = spinand_mtd_read;
 	mtd->_write_oob = spinand_mtd_write;
