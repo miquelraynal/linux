@@ -393,7 +393,8 @@ static int spinand_read_from_cache_op(struct spinand_device *spinand,
 		rdesc = spinand->dirmaps[req->pos.plane].rdesc_ecc;
 
 	while (nbytes) {
-		ret = spi_mem_dirmap_read(rdesc, column, nbytes, buf);
+		ret = spi_mem_dirmap_read(rdesc, column, nbytes + 64, buf);
+		ret -= 64;
 		if (ret < 0)
 			return ret;
 
