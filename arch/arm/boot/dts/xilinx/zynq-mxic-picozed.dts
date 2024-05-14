@@ -436,6 +436,7 @@
 	status = "okay";
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_sdhci0_default>;
+	wp-inverted;
 };
 
 &uart1 {
