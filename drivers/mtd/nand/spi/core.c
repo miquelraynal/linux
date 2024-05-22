@@ -22,6 +22,8 @@
 
 static bool en_cont_read = true;
 module_param(en_cont_read, bool, 0644);
+static bool en_printk = false;
+module_param(en_printk, bool, 0644);
 
 static int spinand_read_reg_op(struct spinand_device *spinand, u8 reg, u8 *val)
 {
