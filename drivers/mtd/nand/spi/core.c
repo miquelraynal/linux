@@ -20,6 +20,9 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/spi-mem.h>
 
+static bool en_cont_read = true;
+module_param(en_cont_read, bool, 0644);
+
 static int spinand_read_reg_op(struct spinand_device *spinand, u8 reg, u8 *val)
 {
 	struct spi_mem_op op = SPINAND_GET_FEATURE_OP(reg,
@@ -659,7 +662,7 @@ static int spinand_write_page(struct spinand_device *spinand,
 	return nand_ecc_finish_io_req(nand, (struct nand_page_io_req *)req);
 }
 
-static int spinand_mtd_regular_page_read(struct mtd_info *mtd, loff_t from,
+static noinline int spinand_mtd_regular_page_read(struct mtd_info *mtd, loff_t from,
 					 struct mtd_oob_ops *ops,
 					 unsigned int *max_bitflips)
 {
@@ -701,7 +704,7 @@ static int spinand_mtd_regular_page_read(struct mtd_info *mtd, loff_t from,
 	return ret;
 }
 
-static int spinand_mtd_continuous_page_read(struct mtd_info *mtd, loff_t from,
+static noinline int spinand_mtd_continuous_page_read(struct mtd_info *mtd, loff_t from,
 					    struct mtd_oob_ops *ops,
 					    unsigned int *max_bitflips)
 {
@@ -815,10 +818,13 @@ static bool spinand_use_cont_read(struct mtd_info *mtd, loff_t from,
 	    start_pos.eraseblock != end_pos.eraseblock)
 		return false;
 
+	if (!en_cont_read)
+		return false;
+
 	return start_pos.page < end_pos.page;
 }
 
-static int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
+static noinline int spinand_mtd_read(struct mtd_info *mtd, loff_t from,
 			    struct mtd_oob_ops *ops)
 {
 	struct spinand_device *spinand = mtd_to_spinand(mtd);
