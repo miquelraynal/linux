@@ -20,7 +20,7 @@
 #define HC_CTRL_PARALLEL_1 BIT(27)
 #define HC_CTRL_PARALLEL_0 BIT(26)
 #define HC_CTRL_DATA_ORDER BIT(25) //OctaFlash, OctaRAM
-#define HC_CTRL_SIO_SHIFTER(x) (((x) & 0x3) << 23)X
+#define HC_CTRL_SIO_SHIFTER(x) (((x) & 0x3) << 23)
 #define HC_CTRL_EX_SER_B BIT(22)
 #define HC_CTRL_EX_SER_A BIT(21)
 #define HC_CTRL_ASSIMI_BYTE_B(x) (((x) & 0x3) << 19)
@@ -552,6 +552,7 @@ static void mxic_uefc_device_type(struct mxic_uefc_spi *mxic, uint8_t type, uint
 
 static void mxic_uefc_hw_init(struct mxic_uefc_spi *mxic, uint8_t type)
 {
+    UPDATE_WRITE(HC_CTRL, HC_CTRL_SIO_SHIFTER(3), HC_CTRL_SIO_SHIFTER(2));
     writel(CLK_CTRL_RX_SS_A(1) | CLK_CTRL_RX_SS_B(1), mxic->regs + CLK_CTRL);
 
     writel(INT_STS_ALL_CLR, mxic->regs + INT_STS);
@@ -562,7 +563,9 @@ static void mxic_uefc_hw_init(struct mxic_uefc_spi *mxic, uint8_t type)
     writel(ERR_INT_STS_EN_ALL_EN, mxic->regs + ERR_INT_STS_EN);
     writel(ERR_INT_STS_SIG_EN_ALL_EN, mxic->regs + ERR_INT_STS_SIG_EN);
 
-    writel(SAMPLE_ADJ_POINT_SEL_DDR(1) | SAMPLE_ADJ_POINT_SEL_SDR(1), mxic->regs + SAMPLE_ADJ);
+    writel(SAMPLE_ADJ_POINT_SEL_DDR(3) | SAMPLE_ADJ_POINT_SEL_SDR(3), mxic->regs + SAMPLE_ADJ);
+
+    UPDATE_WRITE(SAMPLE_ADJ, SAMPLE_ADJ_DQS_IDLY_DOPI(0xFF), SAMPLE_ADJ_DQS_IDLY_DOPI(0x80));
     writel(0, mxic->regs + SIO_IDLY_1);
     writel(0, mxic->regs + SIO_IDLY_2);
     writel(0, mxic->regs + SIO_ODLY_1);
@@ -613,7 +616,10 @@ static u32 mxic_uefc_spi_mem_prep_op_cfg(struct mxic_uefc_spi *mxic,
 static int mxic_uefc_spi_io_mode_xfer(struct mxic_uefc_spi *mxic, const void *tx, void *rx, 
             unsigned int len)
 {
-    u32 pos = 0;
+    u32 pos = 0, tmp_nbytes = 0;
+
+    if (len == 1 && rx)
+        tmp_nbytes = 2;
 
     while (pos < len) {
         u32 nbytes = len - pos;
@@ -630,14 +636,15 @@ static int mxic_uefc_spi_io_mode_xfer(struct mxic_uefc_spi *mxic, const void *tx
                      sts & PRES_STS_TX_NFULL, 0, USEC_PER_SEC);
         if (ret)
             return ret;
-        writel(data, mxic->regs + TXD(nbytes % 4));
+        /* workaround for 1 byte read issue*/
+        writel(data, mxic->regs + TXD((tmp_nbytes ? tmp_nbytes : nbytes) % 4));
 
         ret = readl_poll_timeout(mxic->regs + PRES_STS, sts,
                      sts & PRES_STS_RX_NEMPT, 0, USEC_PER_SEC);
         if (ret)
             return ret;
         
-        data = readl(mxic->regs + RXD_REG);
+        data = readl(mxic->regs + RXD_REG) >> (tmp_nbytes * 4);
         if (rx)
             memcpy(rx + pos, &data, nbytes);
         
@@ -738,15 +745,12 @@ static int mxic_uefc_spi_mem_exec_op(struct spi_mem *mem,
     int i, ret = 0;
     u8 addr[8], cmd[2];
     
-    if (ret)
-        return ret;
-    
     writel(mxic_uefc_spi_mem_prep_op_cfg(mxic, op, op->data.nbytes), mxic->regs + TFR_MODE);
     
     mxic_uefc_spi_set_cs(mem->spi, true);
 
     for (i = 0; i < op->cmd.nbytes; i++)
-        cmd[i] = op->cmd.opcode >> (8 * (op->cmd.nbytes - i - 1));    
+        cmd[i] = op->cmd.opcode >> (8 * (op->cmd.nbytes - i - 1));
 
     ret = mxic_uefc_spi_io_mode_xfer(mxic, cmd, NULL, op->cmd.nbytes);
     if (ret)
