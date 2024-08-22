@@ -379,5 +379,62 @@
 			clocks = <&clk UART16_GATE>;
 			status = "disabled";
 		};
+
+		qspi0: spi@40680000 {
+                        compatible = "nuvoton,ma35d1-qspi";
+                        reg = <0x0 0x40680000 0x0 0x100>;
+                        interrupts = <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>;
+                        clocks = <&clk QSPI0_GATE>;
+			nuvoton,sys = <&sys>;
+                        num_cs = <2>;
+                        lsb = <0>;
+                        sleep = <0>;
+                        txbitlen = <8>;
+                        quad = <0>;
+                        bus_num = <0>;
+                        spimode = <0>;
+                        mrxphase = <0>;
+                        status = "disabled";
+
+                        #address-cells = <1>;
+                        #size-cells = <0>;
+
+			spi_nand: flash@0 {
+                                compatible = "spi-nand";
+                                reg = <0>;
+                                spi-max-frequency = <30000000>;
+
+                                #address-cells = <1>;
+                                #size-cells = <1>;
+
+                                uboot@0 {
+                                        label = "spinand-uboot";
+                                        reg = <0x0 0x300000>;
+                                };
+                                uboot-env@300000 {
+                                        label = "spinand-uboot-env";
+                                        reg = <0x300000 0xc0000>;
+                                };
+                                device-tree@3c0000 {
+                                        label = "spinand-device-tree";
+                                        reg = <0x3c0000 0x40000>;
+                                };
+                                kernel@400000 {
+                                        label = "spinand-kernel";
+                                        reg = <0x400000 0x1800000>;
+                                };
+                                rootfs@1c00000 {
+                                        label = "spinand-rootfs";
+                                        reg = <0x1c00000 0x6400000>;
+                                };
+
+                        };
+
+                        spidev0: spi@1 {
+                                compatible = "semtech,sx1301";
+                                reg = <1>;
+                                spi-max-frequency = <12000000>;
+                        };
+		};
 	};
 };
