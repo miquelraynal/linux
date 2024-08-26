@@ -757,6 +757,7 @@ enum {
 	DUMP_PREFIX_NONE = 0, /* Legacy definition for print_hex_dump() */
 	DUMP_PREFIX_ADDRESS = BIT(1),
 	DUMP_PREFIX_OFFSET = BIT(2),
+	DUMP_SKIP_IDENTICAL_LINES = BIT(3),
 };
 
 extern int hex_dump_to_buffer(const void *buf, size_t len, int rowsize,
