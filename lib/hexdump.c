@@ -8,6 +8,7 @@
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/minmax.h>
+#include <linux/string.h>
 #include <linux/export.h>
 #include <linux/unaligned.h>
 
@@ -240,6 +241,8 @@ EXPORT_SYMBOL(hex_dump_to_buffer);
  *   - %DUMP_PREFIX_OFFSET shows the offset in front of each line
  *   - %DUMP_PREFIX_ADDRESS shows the address in front of each line
  *   - %DUMP_ASCII prints the ascii equivalent after the hex output
+ *   - %DUMP_SKIP_IDENTICAL_LINES will display a single '*' instead of
+ *     duplicated lines.
  *
  * Given a buffer of u8 data, print_hex() prints a hex + ASCII dump
  * to the kernel log at the specified kernel log level, with an optional
@@ -263,8 +266,9 @@ void print_hex(const char *level, const char *prefix_str, int rowsize, int group
 	       const void *buf, size_t len, unsigned int dump_flags)
 {
 	const u8 *ptr = buf;
-	int i, linelen, remaining = len;
+	int i, prev_i, linelen, remaining = len;
 	unsigned char linebuf[32 * 3 + 2 + 32 + 1];
+	bool same_line = false;
 
 	if (rowsize != 16 && rowsize != 32)
 		rowsize = 16;
@@ -272,6 +276,20 @@ void print_hex(const char *level, const char *prefix_str, int rowsize, int group
 	for (i = 0; i < len; i += rowsize) {
 		linelen = min(remaining, rowsize);
 		remaining -= rowsize;
+
+		if (dump_flags & DUMP_SKIP_IDENTICAL_LINES) {
+			if (i && !memcmp(ptr + i, ptr + prev_i, linelen)) {
+				prev_i = i;
+				if (same_line)
+					continue;
+				same_line = true;
+				printk("%s*\n", level);
+				continue;
+			} else {
+				prev_i = i;
+				same_line = false;
+			}
+		}
 
 		hex_dump_to_buffer(ptr + i, linelen, rowsize, groupsize,
 				   linebuf, sizeof(linebuf),
