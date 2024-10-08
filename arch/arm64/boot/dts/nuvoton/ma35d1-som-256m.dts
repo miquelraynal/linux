@@ -131,5 +131,12 @@
 };
 
 &qspi0 {
+	quad = <1>;
 	status = "okay";
+};
+
+&spi_nand {
+	spi-max-frequency = <30000000>;
+	spi-rx-bus-width = <4>;
+	spi-tx-bus-width = <4>;
 };
