@@ -40,7 +40,9 @@
 #define REG_INTERNAL    0x48
 
 /* spi register bit */
+#define DTREN           (0x01 << 23)
 #define QUADIOEN        (0x01 << 22)
+#define DUALIOEN        (0x01 << 21)
 #define DATDIR          (0x01 << 20)
 #define UNITIEN         (0x01 << 17)
 #define TXNEG           (0x01 << 2)
@@ -145,9 +147,13 @@ static int nuvoton_spi_clk_setup(struct nuvoton_spi *hw, unsigned long freq)
 
 	//clk = clk_get_rate(hw->clk);
 	clk = 180000000;
-	div = DIV_ROUND_UP(clk, freq) - 1;
+	div = clk / freq - 1;
+	//HACK: force minimum frequency
+	//div = 511; // This is 351kHz
+	freq = clk / (div + 1);
 	hw->pdata->hz = freq;
 	hw->pdata->divider = div;
+	printk("%s [%d] div: %d, freq %luHz\n", __func__, __LINE__, div, freq);
 
 	nuvoton_set_divider(hw);
 
@@ -365,54 +371,72 @@ static inline void hw_rx(struct nuvoton_spi *hw, unsigned int data, int count)
 		rx_int[count] = data;
 }
 
-static int nuvoton_spi_data_xfer(struct nuvoton_spi *hw, const void *txbuf,
-				void *rxbuf, unsigned int len)
+static noinline int nuvoton_spi_rst_fifo(struct nuvoton_spi *hw)
 {
 	unsigned long end;
-	unsigned int  i;
 
-	__raw_writel(__raw_readl(hw->regs + REG_FIFOCTL) | (TXRST | RXRST), hw->regs + REG_FIFOCTL);
+	writel(__raw_readl(hw->regs + REG_FIFOCTL) | (TXRST | RXRST), hw->regs + REG_FIFOCTL);
 	end = jiffies + msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS);
 	while (__raw_readl(hw->regs + REG_STATUS) & TXRXRST) {
+		cpu_relax();
 		if (time_after(jiffies, end)) {
 			printk("SPI TXRXRST timeout: %d\n", __LINE__);
 			return -ETIMEDOUT;
 		}
 	}
 
+	return 0;
+}
+
+static int nuvoton_spi_poll_status(struct nuvoton_spi *hw, u32 mask)
+{
+	unsigned long end;
+
+	end = jiffies + msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS);
+	while ((__raw_readl(hw->regs + REG_STATUS) & mask) == mask) {
+		cpu_relax();
+		if (time_after(jiffies, end)) {
+			printk("SPI BUSY timeout: %x\n", mask);
+			return -ETIMEDOUT;
+		}
+	}
+
+	return 0;
+}
+
+static noinline int nuvoton_spi_data_xfer(struct nuvoton_spi *hw, const void *txbuf,
+					  void *rxbuf, unsigned int len)
+{
+	unsigned int  i;
+	int ret;
+
+	ret = nuvoton_spi_rst_fifo(hw);
+	if (ret)
+		return ret;
+
 	hw->tx = txbuf;
 	hw->rx = rxbuf;
 
-		end = jiffies + msecs_to_jiffies(SPI_GENERAL_TIMEOUT_MS);
-		if (hw->rx) {
-			for (i = 0; i < len; i++) {
-				__raw_writel(hw_tx(hw, i), hw->regs + REG_TX);
-				while (((__raw_readl(hw->regs + REG_STATUS) & RXEMPTY) == RXEMPTY)) {
-					if (time_after(jiffies, end)) {
-						printk("SPI RXEMPTY timeout: %d\n", __LINE__);
-						return -ETIMEDOUT;
-					}
-				}
-				hw_rx(hw, __raw_readl(hw->regs + REG_RX), i);
-			}
-		} else {
-			for (i = 0; i < len; i++) {
-				while (((__raw_readl(hw->regs + REG_STATUS) & TXFULL) == TXFULL)) {
-					if (time_after(jiffies, end)) {
-						printk("SPI TXFULL timeout: %d\n", __LINE__);
-						return -ETIMEDOUT;
-					}
-				}
-				__raw_writel(hw_tx(hw, i), hw->regs + REG_TX);
-			}
+	if (hw->rx) {
+		for (i = 0; i < len; i++) {
+			__raw_writel(hw_tx(hw, i), hw->regs + REG_TX);
+			ret = nuvoton_spi_poll_status(hw, RXEMPTY);
+			if (ret)
+				return ret;
+			hw_rx(hw, __raw_readl(hw->regs + REG_RX), i);
 		}
+	} else {
+		for (i = 0; i < len; i++) {
+			ret = nuvoton_spi_poll_status(hw, TXFULL);
+			if (ret)
+				return ret;
+			__raw_writel(hw_tx(hw, i), hw->regs + REG_TX);
+		}
+	}
 
-		while (__raw_readl(hw->regs + REG_STATUS) & BUSY) {
-			if (time_after(jiffies, end)) {
-				printk("SPI BUSY timeout: %d\n", __LINE__);
-				return -ETIMEDOUT;
-			}
-		}
+	ret = nuvoton_spi_poll_status(hw, BUSY);
+	if (ret)
+		return ret;
 
 	return 0;
 }
@@ -421,11 +445,7 @@ static bool nuvoton_spi_mem_supports_op(struct spi_mem *mem,
 					const struct spi_mem_op *op)
 {
 	if (op->data.buswidth > 4 || op->addr.buswidth > 4 ||
-		op->dummy.buswidth > 4 || op->cmd.buswidth > 4)
-		return false;
-
-	if (op->data.nbytes && op->dummy.nbytes &&
-	    op->data.buswidth != op->dummy.buswidth)
+		op->dummy.buswidth > 4 || op->cmd.buswidth > 1)
 		return false;
 
 	if (op->addr.nbytes > 7)
@@ -536,8 +556,6 @@ static struct nuvoton_qspi_info *nuvoton_spi_parse_dt(struct device *dev)
 	return sci;
 }
 
-
-
 static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
 					const struct spi_mem_op *op)
 {
@@ -545,6 +563,7 @@ static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
 	unsigned long flags;
 	int i, ret;
 	u8 addr[8];
+	u32 ctl;
 
 	spin_lock_irqsave(&nuvoton->lock, flags);
 
@@ -557,15 +576,38 @@ static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
 
 	nuvoton_spi_set_cs(mem->spi, 0); //Activate CS
 
+	if (0) //op->cmd.dtr || op->addr.dtr || op->dummy.dtr || op->data.dtr)
+		printk("%d%c-%d%c-%d%c-%d%c\n",
+		       op->cmd.buswidth, op->cmd.dtr ? 'D' : 'S',
+		       op->addr.buswidth, op->addr.dtr ? 'D' : 'S',
+		       op->dummy.buswidth, op->dummy.dtr ? 'D' : 'S',
+		       op->data.buswidth, op->data.dtr ? 'D' : 'S');
+
+	ctl = __raw_readl(nuvoton->regs + REG_CTL);
+	ctl &= ~(QUADIOEN | DUALIOEN | DTREN | DATDIR);
+	if (op->cmd.buswidth == 4)
+		ctl |= QUADIOEN;
+	else if (op->cmd.buswidth == 2)
+		ctl |= DUALIOEN;
+	if (op->cmd.dtr)
+		ctl |= DTREN;
+	__raw_writel(ctl | DATDIR, nuvoton->regs + REG_CTL);
+
 	ret = nuvoton_spi_data_xfer(nuvoton, &op->cmd.opcode, NULL, 1);
 	if (ret) {
 		printk("nuvoton_spi_data_xfer failed!! %d\n", __LINE__);
 		goto out;
 	}
 
+	ctl = __raw_readl(nuvoton->regs + REG_CTL);
+	ctl &= ~(QUADIOEN | DUALIOEN | DTREN | DATDIR);
 	if (op->addr.buswidth == 4)
-		__raw_writel((__raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN | DATDIR),
-				nuvoton->regs + REG_CTL); //Enable Quad mode, direction output
+		ctl |= QUADIOEN;
+	else if (op->addr.buswidth == 2)
+		ctl |= DUALIOEN;
+	if (op->addr.dtr)
+		ctl |= DTREN;
+	__raw_writel(ctl | DATDIR, nuvoton->regs + REG_CTL);
 
 	for (i = 0; i < op->addr.nbytes; i++)
 		addr[i] = op->addr.val >> (8 * (op->addr.nbytes - i - 1));
@@ -576,10 +618,15 @@ static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
 		goto out;
 	}
 
-	if (op->dummy.buswidth == 4) {
-		__raw_writel((__raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN | DATDIR),
-		nuvoton->regs + REG_CTL); //Enable Quad mode, direction output
-	}
+	ctl = __raw_readl(nuvoton->regs + REG_CTL);
+	ctl &= ~(QUADIOEN | DUALIOEN | DTREN | DATDIR);
+	if (op->dummy.buswidth == 4)
+		ctl |= QUADIOEN;
+	else if (op->dummy.buswidth == 2)
+		ctl |= DUALIOEN;
+	if (op->dummy.dtr)
+		ctl |= DTREN;
+	__raw_writel(ctl | DATDIR, nuvoton->regs + REG_CTL);
 
 	ret = nuvoton_spi_data_xfer(nuvoton, NULL, NULL, op->dummy.nbytes);
 	if (ret) {
@@ -587,25 +634,30 @@ static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
 		goto out;
 	}
 
-	if (op->data.buswidth == 4) {
-		if (op->data.dir == SPI_MEM_DATA_OUT)
-			__raw_writel(((__raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN) | DATDIR),
-					nuvoton->regs + REG_CTL);//Enable Quad mode, direction output
-		else if (op->data.dir == SPI_MEM_DATA_IN)
-			__raw_writel(((__raw_readl(nuvoton->regs + REG_CTL) | QUADIOEN) & ~DATDIR),
-					nuvoton->regs + REG_CTL);//Enable Quad mode, direction input
-	}
+	ctl = __raw_readl(nuvoton->regs + REG_CTL);
+	ctl &= ~(QUADIOEN | DUALIOEN | DTREN | DATDIR);
+	if (op->data.buswidth == 4)
+		ctl |= QUADIOEN;
+	else if (op->data.buswidth == 2)
+		ctl |= DUALIOEN;
+	if (op->data.dir == SPI_MEM_DATA_OUT)
+		ctl |= DATDIR;
+	if (op->data.dtr)
+		ctl |= DTREN;
+	__raw_writel(ctl, nuvoton->regs + REG_CTL);
 
 	ret = nuvoton_spi_data_xfer(nuvoton,
-					op->data.dir == SPI_MEM_DATA_OUT ?
-					op->data.buf.out : NULL,
-					op->data.dir == SPI_MEM_DATA_IN ?
-					op->data.buf.in : NULL,
-					op->data.nbytes);
+				    op->data.dir == SPI_MEM_DATA_OUT ?
+				    op->data.buf.out : NULL,
+				    op->data.dir == SPI_MEM_DATA_IN ?
+				    op->data.buf.in : NULL,
+				    op->data.nbytes);
 
-	__raw_writel((__raw_readl(nuvoton->regs + REG_CTL) & ~(QUADIOEN | DATDIR)),
-			nuvoton->regs + REG_CTL); //Restore to single mode, direction input
 out:
+	/* Restore to single mode, direction input */
+	ctl = __raw_readl(nuvoton->regs + REG_CTL);
+	ctl &= ~(QUADIOEN | DUALIOEN | DATDIR | DTREN);
+	__raw_writel(ctl, nuvoton->regs + REG_CTL);
 
 	nuvoton_spi_set_cs(mem->spi, 1); //Deactivate CS
 
@@ -617,6 +669,10 @@ out:
 static const struct spi_controller_mem_ops nuvoton_spi_mem_ops = {
 	.supports_op = nuvoton_spi_mem_supports_op,
 	.exec_op = nuvoton_spi_mem_exec_op,
+};
+
+static const struct spi_controller_mem_caps nuvoton_mem_caps = {
+	.dtr = true,
 };
 
 static int nuvoton_spi_transfer_one(struct spi_controller *host,
@@ -743,6 +799,7 @@ static int nuvoton_spi_probe(struct platform_device *pdev)
 
 	host->num_chipselect = 2;
 	host->mem_ops = &nuvoton_spi_mem_ops;
+	host->mem_caps = &nuvoton_mem_caps;
 
 	host->set_cs = nuvoton_spi_set_cs;
 	host->transfer_one = nuvoton_spi_transfer_one;
