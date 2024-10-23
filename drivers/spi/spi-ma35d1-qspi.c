@@ -567,7 +567,7 @@ static int nuvoton_spi_mem_exec_op(struct spi_mem *mem,
 
 	spin_lock_irqsave(&nuvoton->lock, flags);
 
-	ret = nuvoton_spi_set_freq(nuvoton, mem->spi->max_speed_hz);
+	ret = nuvoton_spi_set_freq(nuvoton, op->max_freq);
 	if (ret) {
 		printk("nuvoton_spi_set_freq failed!\n");
 		goto out;
@@ -673,6 +673,7 @@ static const struct spi_controller_mem_ops nuvoton_spi_mem_ops = {
 
 static const struct spi_controller_mem_caps nuvoton_mem_caps = {
 	.dtr = true,
+	.per_op_freq = true,
 };
 
 static int nuvoton_spi_transfer_one(struct spi_controller *host,
