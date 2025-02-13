@@ -20,7 +20,7 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/spi-mem.h>
 
-static int spinand_read_reg_op(struct spinand_device *spinand, u8 reg, u8 *val)
+int spinand_read_reg_op(struct spinand_device *spinand, u8 reg, u8 *val)
 {
 	struct spi_mem_op op = SPINAND_GET_FEATURE_1S_1S_1S_OP(reg,
 						      spinand->scratchbuf);
@@ -360,7 +360,7 @@ static void spinand_ondie_ecc_save_status(struct nand_device *nand, u8 status)
 		engine_conf->status = status;
 }
 
-static int spinand_write_enable_op(struct spinand_device *spinand)
+int spinand_write_enable_op(struct spinand_device *spinand)
 {
 	struct spi_mem_op op = SPINAND_WR_EN_DIS_1S_0_0_OP(true);
 
@@ -1299,6 +1299,7 @@ int spinand_match_and_init(struct spinand_device *spinand,
 		spinand->id.len = 1 + table[i].devid.len;
 		spinand->select_target = table[i].select_target;
 		spinand->set_cont_read = table[i].set_cont_read;
+		spinand->late_init = table[i].late_init;
 
 		printk("%s [%d] read cache\n", __func__, __LINE__);
 		op = spinand_select_op_variant(spinand,
@@ -1384,6 +1385,12 @@ static int spinand_init_flash(struct spinand_device *spinand)
 		"Failed to initialize the SPI NAND chip (err = %d)\n",
 		ret);
 		return ret;
+	}
+
+	if (spinand->late_init) {
+		ret = spinand->late_init(spinand);
+		if (ret)
+			return ret;
 	}
 
 	/* After power up, all blocks are locked, so unlock them here. */
