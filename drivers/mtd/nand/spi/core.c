@@ -1229,22 +1229,29 @@ spinand_select_op_variant(struct spinand_device *spinand,
 		while (nbytes) {
 			op.data.nbytes = nbytes;
 			ret = spi_mem_adjust_op_size(spinand->spimem, &op);
-			if (ret)
+			if (ret) {
+				printk("%s [%d] ret %d\n", __func__, __LINE__, ret);
 				break;
+			}
 
 			spi_mem_adjust_op_freq(spinand->spimem, &op);
 
-			if (!spi_mem_supports_op(spinand->spimem, &op))
+			if (!spi_mem_supports_op(spinand->spimem, &op)) {
+				printk("%s [%d] unsupported op\n", __func__, __LINE__);
 				break;
+			}
 
 			nbytes -= op.data.nbytes;
 
 			op_duration_ns += spi_mem_calc_op_duration(&op);
 		}
 
+		printk("%s [%d] variant %d duration: %lld)\n", __func__, __LINE__, i, op_duration_ns);
+
 		if (!nbytes && op_duration_ns < best_op_duration_ns) {
 			best_op_duration_ns = op_duration_ns;
 			best_variant = &variants->ops[i];
+			printk("%s [%d] best variant: %d\n", __func__, __LINE__, i);
 		}
 	}
 
@@ -1293,6 +1300,7 @@ int spinand_match_and_init(struct spinand_device *spinand,
 		spinand->select_target = table[i].select_target;
 		spinand->set_cont_read = table[i].set_cont_read;
 
+		printk("%s [%d] read cache\n", __func__, __LINE__);
 		op = spinand_select_op_variant(spinand,
 					       info->op_variants.read_cache);
 		if (!op)
@@ -1300,6 +1308,7 @@ int spinand_match_and_init(struct spinand_device *spinand,
 
 		spinand->op_templates.read_cache = op;
 
+		printk("%s [%d] write cache\n", __func__, __LINE__);
 		op = spinand_select_op_variant(spinand,
 					       info->op_variants.write_cache);
 		if (!op)
@@ -1307,6 +1316,7 @@ int spinand_match_and_init(struct spinand_device *spinand,
 
 		spinand->op_templates.write_cache = op;
 
+		printk("%s [%d] update cache\n", __func__, __LINE__);
 		op = spinand_select_op_variant(spinand,
 					       info->op_variants.update_cache);
 		spinand->op_templates.update_cache = op;
