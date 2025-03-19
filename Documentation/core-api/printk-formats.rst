@@ -310,7 +310,7 @@ Raw buffer as a hex string
 
 For printing small buffers (up to 64 bytes long) as a hex string with a
 certain separator. For larger buffers consider using
-:c:func:`print_hex_dump`.
+:c:func:`print_hex`.
 
 MAC/FDDI addresses
 ------------------
