@@ -747,22 +747,31 @@ do {									\
 
 extern const struct file_operations kmsg_fops;
 
+/*
+ * Dump flags for print_hex().
+ * DUMP_PREFIX_{NONE,ADDRESS,OFFSET} are mutually exclusive.
+ */
 enum {
-	DUMP_PREFIX_NONE,
-	DUMP_PREFIX_ADDRESS,
-	DUMP_PREFIX_OFFSET
+	DUMP_HEX_DATA = 0,
+	DUMP_ASCII = BIT(0),
+	DUMP_PREFIX_NONE = 0, /* Legacy definition for print_hex_dump() */
+	DUMP_PREFIX_ADDRESS = BIT(1),
+	DUMP_PREFIX_OFFSET = BIT(2),
 };
+
 extern int hex_dump_to_buffer(const void *buf, size_t len, int rowsize,
 			      int groupsize, char *linebuf, size_t linebuflen,
 			      bool ascii);
 #ifdef CONFIG_PRINTK
-extern void print_hex_dump(const char *level, const char *prefix_str,
-			   int prefix_type, int rowsize, int groupsize,
-			   const void *buf, size_t len, bool ascii);
+extern void print_hex(const char *level, const char *prefix_str,
+		      int rowsize, int groupsize,
+		      const void *buf, size_t len,
+		      unsigned int dump_flags);
 #else
-static inline void print_hex_dump(const char *level, const char *prefix_str,
-				  int prefix_type, int rowsize, int groupsize,
-				  const void *buf, size_t len, bool ascii)
+static inline void print_hex(const char *level, const char *prefix_str,
+			     int rowsize, int groupsize,
+			     const void *buf, size_t len,
+			     unsigned int dump_flags)
 {
 }
 static inline void print_hex_dump_bytes(const char *prefix_str, int prefix_type,
@@ -790,6 +799,21 @@ static inline void print_hex_dump_debug(const char *prefix_str, int prefix_type,
 {
 }
 #endif
+
+/*
+ * print_hex_dump - legacy version of print_hex() with a longer parameter list
+ *
+ * Refer to print_hex() for the parameters definition which are identical except:
+ * - prefix_type: controls whether prefix of an offset, address, or none
+ * is printed (%DUMP_PREFIX_OFFSET, %DUMP_PREFIX_ADDRESS, %DUMP_PREFIX_NONE).
+ * This parameter has been removed in favor of a common 'flags' parameter.
+ * - ascii: include ASCII after the hex output.
+ * This parameter has been removed in favor of a common 'flags' parameter.
+ */
+
+#define print_hex_dump(level, prefix_str, prefix_type, rowsize, groupsize, buf, len, ascii) \
+	print_hex(level, prefix_str, rowsize, groupsize, buf, len, \
+		  (prefix_type) | ((ascii) ? DUMP_ASCII : DUMP_HEX_DATA))
 
 /**
  * print_hex_dump_bytes - shorthand form of print_hex_dump() with default params
