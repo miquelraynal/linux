@@ -302,6 +302,13 @@ void print_hex(const char *level, const char *prefix_str, int rowsize, int group
 		else
 			printk("%s%s%s\n", level, prefix_str, linebuf);
 	}
+
+	if (same_line) {
+		if (dump_flags & DUMP_PREFIX_ADDRESS)
+			printk("%s%s%p\n", level, prefix_str, ptr + i);
+		else if (dump_flags & DUMP_PREFIX_OFFSET)
+			printk("%s%s%.8x\n", level, prefix_str, i);
+	}
 }
 EXPORT_SYMBOL(print_hex);
 
