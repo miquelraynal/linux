@@ -382,7 +382,7 @@ static const struct spinand_info winbond_spinand_table[] = {
 		     SPINAND_ID(SPINAND_READID_METHOD_OPCODE_DUMMY, 0xdf, 0x22),
 		     NAND_MEMORG(1, 4096, 128, 64, 512, 10, 2, 1, 1),
 		     NAND_ECCREQ(1, 512),
-		     SPINAND_INFO_OP_VARIANTS(&read_cache_octal_variants,
+		     SPINAND_INFO_OP_VARIANTS(&phy_read_cache_variants,
 					      &write_cache_octal_variants,
 					      &update_cache_octal_variants),
 		     0,
