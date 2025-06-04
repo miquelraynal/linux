@@ -1298,7 +1298,7 @@ spinand_select_op_variant(struct spinand_device *spinand,
 
 			nbytes -= op.data.nbytes;
 
-			op_duration_ns += spi_mem_calc_op_duration(&op);
+			op_duration_ns += spi_mem_calc_op_duration(spinand->spimem, &op);
 		}
 
 		printk("%s [%d] variant %d duration: %lld)\n", __func__, __LINE__, i, op_duration_ns);
