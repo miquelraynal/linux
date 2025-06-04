@@ -1380,7 +1380,8 @@ int spinand_match_and_init(struct spinand_device *spinand,
 			return -ENOTSUPP;
 
 		spinand->op_templates.read_cache = op;
-
+		printk("%s [%d] op %px\n", __func__, __LINE__, op);
+		
 		printk("%s [%d] write cache\n", __func__, __LINE__);
 		op = spinand_select_op_variant(spinand,
 					       info->op_variants.write_cache);

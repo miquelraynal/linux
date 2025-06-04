@@ -257,6 +257,8 @@ static int w25n0xjw_hs_cfg(struct spinand_device *spinand)
 	int ret;
 
 	op = spinand->op_templates.read_cache;
+	printk("%s [%d] op %px\n", __func__, __LINE__, op);
+	printk("%s [%d] max freq %d\n", __func__, __LINE__, op->max_freq);
 	if (op->cmd.dtr || op->addr.dtr || op->dummy.dtr || op->data.dtr)
 		hs = false;
 	else if (op->cmd.buswidth == 1 && op->addr.buswidth == 1 &&
@@ -267,6 +269,7 @@ static int w25n0xjw_hs_cfg(struct spinand_device *spinand)
 	else
 		hs = false;
 
+	printk("%s [%d] hs %d\n", __func__, __LINE__, hs);
 	ret = spinand_read_reg_op(spinand, W25N0XJW_SR4, &sr4);
 	if (ret)
 		return ret;
@@ -349,6 +352,7 @@ static int w35n0xjw_vcr_cfg(struct spinand_device *spinand)
 	default:
 		return -EINVAL;
 	}
+	printk("%s [%d] dummy cycles: %d\n", __func__, __LINE__, dummy_cycles);
 	ret = w35n0xjw_write_vcr(spinand, W35N01JW_VCR_DUMMY_CLOCK_REG, dummy_cycles);
 	if (ret)
 		return ret;

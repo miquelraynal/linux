@@ -606,6 +606,7 @@ u64 spi_mem_calc_op_duration(struct spi_mem *mem, struct spi_mem_op *op)
 		ps_per_cycles = 1;
 	}
 
+	printk("%s [%d] max freq: %dHz, ps_per_cycles %lld\n", __func__, __LINE__, op->max_freq, ps_per_cycles);
 	ncycles += ((op->cmd.nbytes * 8) / op->cmd.buswidth) / (op->cmd.dtr ? 2 : 1);
 	ncycles += ((op->addr.nbytes * 8) / op->addr.buswidth) / (op->addr.dtr ? 2 : 1);
 
@@ -613,6 +614,8 @@ u64 spi_mem_calc_op_duration(struct spi_mem *mem, struct spi_mem_op *op)
 	if (op->dummy.nbytes)
 		ncycles += ((op->dummy.nbytes * 8) / op->dummy.buswidth) / (op->dummy.dtr ? 2 : 1);
 
+	printk("%s [%d] ndummy cycles: %d\n", __func__, __LINE__,
+		((op->dummy.nbytes * 8) / op->dummy.buswidth) / (op->dummy.dtr ? 2 : 1));
 	ncycles += ((op->data.nbytes * 8) / op->data.buswidth) / (op->data.dtr ? 2 : 1);
 
 	/* Derive the duration in ps */
